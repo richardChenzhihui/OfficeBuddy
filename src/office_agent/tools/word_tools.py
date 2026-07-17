@@ -166,6 +166,32 @@ def word_insert_element(ctx: ToolContext, p: WordInsertElementInput) -> dict:
     )
 
 
+class WordDeleteElementInput(BaseModel):
+    doc_id: str = Field(..., description="Document id")
+    selector: Dict[str, Any] = Field(
+        ...,
+        description=(
+            "Selector for the element(s) to delete (paragraph / table / "
+            f"text_match / style_match). {_SELECTOR_DOC}"
+        ),
+    )
+
+
+@REGISTRY.register(
+    "word_delete_element",
+    "Delete the selected paragraph(s), table(s), or table row(s) from the "
+    "document entirely. Use this (or undo) to remove a duplicated or wrongly "
+    "inserted element — never insert again hoping to fix it.",
+    WordDeleteElementInput,
+    mutates=True,
+)
+def word_delete_element(ctx: ToolContext, p: WordDeleteElementInput) -> dict:
+    session = _word_session(ctx, p.doc_id)
+    elements = _resolve(session, p.selector)
+    result = WordAdapter.delete_elements(elements)
+    return {"matched_count": len(elements), **result}
+
+
 @REGISTRY.register(
     "word_find_replace",
     "Find and replace exact text across the document or a scoped selection. "

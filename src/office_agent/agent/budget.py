@@ -66,6 +66,10 @@ class BudgetTracker:
     def task_exhausted(self) -> bool:
         return self.total_tool_calls >= self.limits.max_tool_calls_per_task
 
+    def step_exhausted(self, step_index: int) -> bool:
+        """A single step spinning on tool calls without converging."""
+        return self.step(step_index).tool_calls >= self.limits.max_tool_calls_per_step
+
     def record_end_turn_repair(self) -> None:
         self.end_turn_repairs += 1
 

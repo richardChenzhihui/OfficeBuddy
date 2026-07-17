@@ -120,9 +120,26 @@ class WordAdapter:
             )
         if style.color:
             _parse_color(style.color)
+        if style.border:
+            raise ValueError(
+                "Word table borders are not supported yet — do not retry with "
+                "'border'. Supported here: font/size/bold/italic/underline/"
+                "color/alignment/spacing, plus bg_color for table cells."
+            )
         affected: List[str] = []
         for element in elements:
-            if hasattr(element, "runs"):  # Paragraph: style runs AND paragraph format
+            if hasattr(element, "rows"):  # Table: style every cell
+                for row in element.rows:
+                    for cell in row.cells:
+                        WordAdapter._apply_cell_style(cell, style)
+                affected.append(
+                    f"table styled ({len(element.rows)} rows x "
+                    f"{len(element.columns)} cols)"
+                )
+            elif hasattr(element, "paragraphs") and hasattr(element, "_tc"):  # Cell
+                WordAdapter._apply_cell_style(element, style)
+                affected.append("cell styled")
+            elif hasattr(element, "runs"):  # Paragraph
                 for run in element.runs:
                     WordAdapter._apply_run_style(run, style)
                 WordAdapter._apply_paragraph_format(element, style)
@@ -130,7 +147,39 @@ class WordAdapter:
             elif hasattr(element, "font"):  # Run
                 WordAdapter._apply_run_style(element, style)
                 affected.append("run styled")
+            elif hasattr(element, "cells"):  # Table row
+                for cell in element.cells:
+                    WordAdapter._apply_cell_style(cell, style)
+                affected.append(f"row styled ({len(element.cells)} cells)")
+        if not affected:
+            raise ValueError(
+                "apply_style matched elements of an unsupported kind — nothing "
+                "was styled. Target paragraphs, runs, tables, rows, or cells."
+            )
         return {"affected": affected}
+
+    @staticmethod
+    def _apply_cell_style(cell: Any, style: StyleParams) -> None:
+        for para in cell.paragraphs:
+            for run in para.runs:
+                WordAdapter._apply_run_style(run, style)
+            WordAdapter._apply_paragraph_format(para, style)
+        if style.bg_color:
+            WordAdapter._shade_cell(cell, style.bg_color)
+
+    @staticmethod
+    def _shade_cell(cell: Any, hex_color: str) -> None:
+        from docx.oxml.ns import qn
+        from docx.oxml.parser import OxmlElement
+
+        fill = hex_color.lstrip("#").upper()
+        tc_pr = cell._tc.get_or_add_tcPr()
+        for old in tc_pr.findall(qn("w:shd")):
+            tc_pr.remove(old)
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:fill"), fill)
+        tc_pr.append(shd)
 
     @staticmethod
     def _apply_paragraph_format(paragraph: Any, style: StyleParams) -> None:
@@ -216,6 +265,27 @@ class WordAdapter:
             f"Unsupported element type '{element_type}': "
             "expected table, paragraph, or page_break."
         )
+
+    @staticmethod
+    def delete_elements(elements: List[Any]) -> Dict[str, Any]:
+        """Remove paragraphs/tables/rows from the document tree entirely."""
+        removed: List[str] = []
+        for element in elements:
+            xml_el = getattr(element, "_element", None)
+            if xml_el is None or xml_el.getparent() is None:
+                raise ValueError(
+                    "This element kind cannot be deleted (or is already "
+                    "detached). Deletable: paragraphs, tables, table rows."
+                )
+            if hasattr(element, "rows"):
+                label = f"table({len(element.rows)}x{len(element.columns)})"
+            elif hasattr(element, "text"):
+                label = f"'{element.text[:50]}'"
+            else:
+                label = type(element).__name__
+            xml_el.getparent().remove(xml_el)
+            removed.append(label)
+        return {"affected": removed}
 
     @staticmethod
     def find_replace(

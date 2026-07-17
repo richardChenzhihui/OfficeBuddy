@@ -12,6 +12,7 @@ Harness-intercepted tools (propose_plan / update_plan / ask_user /
 render_preview) are handled here because they need UI and render state.
 """
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -100,6 +101,7 @@ class AgentSession:
         self.pending_ops: Dict[str, List[str]] = {}
         self.saved_paths: List[str] = []
         self.abort_requested = False
+        self.step_started_at: Dict[int, float] = {}
 
     # ------------------------------------------------------------------ turn
 
@@ -229,6 +231,40 @@ class AgentSession:
             if gate is not None:
                 return gate
 
+        # Per-step circuit breakers for mutating tools: a step spinning on
+        # edits (too many calls, or running too long) must converge — verify
+        # what exists, change strategy, or ask the user.
+        tool_def_pre = REGISTRY.tools.get(name)
+        if tool_def_pre and tool_def_pre.mutates:
+            step_idx = self._current_step()
+            started = self.step_started_at.setdefault(step_idx, time.time())
+            breach = None
+            if self.budget.step_exhausted(step_idx):
+                breach = (
+                    "harness:step_toolcap",
+                    f"This step has already made "
+                    f"{self.config.budgets.max_tool_calls_per_step}+ tool calls "
+                    "without converging.",
+                )
+            elif time.time() - started > self.config.budgets.step_wall_clock_seconds:
+                breach = (
+                    "harness:step_timeout",
+                    f"This step has been running for over "
+                    f"{int(self.config.budgets.step_wall_clock_seconds)}s.",
+                )
+            if breach:
+                signature, message = breach
+                self.step_started_at[step_idx] = time.time()  # avoid instant re-fire
+                action = self.budget.record_failure(step_idx, signature)
+                result = {
+                    "success": False,
+                    "error": message
+                    + " Stop adding edits: set the step to done to verify what "
+                    "you already have, or ask the user how to proceed.",
+                }
+                result = self._apply_escalation(result, action, signature)
+                return json.dumps(result, ensure_ascii=False), True
+
         self.budget.record_tool_call(self._current_step())
         result = REGISTRY.dispatch(self.ctx, name, tool_input)
         self.ui.tool_result(name, result)
@@ -261,6 +297,7 @@ class AgentSession:
         self.plan = Plan.from_descriptions(params.steps)
         # Fresh plan -> fresh per-step budgets (task-level counters persist).
         self.budget.reset_steps()
+        self.step_started_at.clear()
         self.ui.plan_update(self.plan)
         return (
             json.dumps({"success": True, "steps_recorded": len(params.steps)}),
@@ -285,6 +322,8 @@ class AgentSession:
             return json.dumps({"success": False, "error": str(exc)}), True
 
         if params.status != "done":
+            if params.status == "in_progress":
+                self.step_started_at[params.step_index] = time.time()
             self.ui.plan_update(self.plan)
             return json.dumps({"success": True}), False
 
@@ -461,6 +500,11 @@ class AgentSession:
             elif answer_text.startswith("skip") and self.plan is not None:
                 self.plan.set_status(self._current_step(), "blocked")
                 self.ui.plan_update(self.plan)
+            elif answer_text.startswith("try"):
+                # User authorized another attempt: refresh this step's
+                # tool-call allowance and clock.
+                step_budget.tool_calls = 0
+                self.step_started_at[self._current_step()] = time.time()
             result["escalation"] = (
                 f"Repeated failures. The user was asked and answered: "
                 f"{json.dumps(answer, ensure_ascii=False)}. Follow this decision."

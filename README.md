@@ -89,6 +89,7 @@ OFFICE_AGENT_LIVE_TEST=1 pytest -m live -q   # 真实 MiniMax 冒烟（花钱，
 
 ## 已知限制
 
-- Excel 图表由 openpyxl 生成，默认样式较朴素（无坐标轴标签微调）。
+- Excel 图表由 openpyxl 生成：数据区首列默认作为类别轴标签，其余样式较朴素。
 - Word 渲染首次冷启动可能需要 1-2 分钟（Word 本体启动）；会话内温启动约 0.6 秒。
-- 段落级 find_replace 跨格式边界的匹配会展平该段的 run 格式（结果中带 warning）。
+  会话结束后 Word/Excel 保持运行以保留温启动（`doctor` 只退出它自己启动的实例）。
+- 段落级 find_replace 仅在匹配跨越格式边界时展平该段 run 格式（结果中带 warning）。

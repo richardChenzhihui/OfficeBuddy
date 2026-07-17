@@ -174,3 +174,154 @@ def test_verifier_fails_closed_on_malformed_response():
     assert verdict.passed is False
     assert verdict.blocking
     assert any("structured verdict" in p["description"] for p in verdict.problems)
+
+
+# --- per-step circuit breakers (formerly dead config) -------------------------
+
+def test_step_tool_cap_blocks_mutating_calls(word_doc_path):
+    """A step spinning on mutating calls gets a circuit-breaker error."""
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from fake_llm import FakeLLM, FakeMessage, text_block, tool_use
+
+    from office_agent.agent.loop import AgentSession
+    from office_agent.config import Config
+
+    config = Config(api_key="fake", visual_verify=False)
+    config.budgets.max_tool_calls_per_step = 2
+    edit = lambda: tool_use(
+        "word_edit_text",
+        {
+            "doc_id": "DOC",
+            "selector": {"type": "paragraph", "index": 0},
+            "operation": "replace",
+            "text": "x",
+        },
+    )
+    llm = FakeLLM(
+        script=[
+            FakeMessage(
+                content=[tool_use("open_document", {"file_path": str(word_doc_path)})],
+                stop_reason="tool_use",
+            ),
+            FakeMessage(content=[edit()], stop_reason="tool_use"),
+            FakeMessage(content=[edit()], stop_reason="tool_use"),
+            FakeMessage(content=[edit()], stop_reason="tool_use"),  # over cap
+            FakeMessage(content=[text_block("stopping")]),
+        ]
+    )
+    session = AgentSession(config, llm=llm)
+    real_id = {}
+    original = AgentSession._handle_tool
+
+    def patched(self, name, tool_input):
+        if tool_input.get("doc_id") == "DOC" and real_id:
+            tool_input["doc_id"] = next(iter(real_id))
+        content, is_error = original(self, name, tool_input)
+        if name == "open_document" and not is_error:
+            real_id[json.loads(content)["doc_id"]] = True
+        return content, is_error
+
+    import unittest.mock
+
+    with unittest.mock.patch.object(AgentSession, "_handle_tool", patched):
+        session.run_turn("edit repeatedly")
+    flat = json.dumps(llm.calls, ensure_ascii=False, default=str)
+    assert "without converging" in flat
+
+
+# --- Word table/cell styling (was a silent no-op) ----------------------------
+
+def test_apply_style_on_table_cell_bold_and_shading():
+    doc = Document()
+    t = doc.add_table(rows=1, cols=2)
+    t.rows[0].cells[0].text = "Name"
+    cell = t.rows[0].cells[0]
+    WordAdapter.apply_style([cell], StyleParams(bold=True, bg_color="#D9D9D9"))
+    assert cell.paragraphs[0].runs[0].bold is True
+    from docx.oxml.ns import qn
+
+    shd = cell._tc.get_or_add_tcPr().find(qn("w:shd"))
+    assert shd is not None and shd.get(qn("w:fill")) == "D9D9D9"
+
+
+def test_apply_style_on_whole_table():
+    doc = Document()
+    t = doc.add_table(rows=2, cols=2)
+    for row in t.rows:
+        for c in row.cells:
+            c.text = "x"
+    result = WordAdapter.apply_style([t], StyleParams(italic=True))
+    assert "table styled" in result["affected"][0]
+    assert t.rows[1].cells[1].paragraphs[0].runs[0].italic is True
+
+
+def test_apply_style_word_border_raises_actionable():
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    with pytest.raises(ValueError, match="not supported yet"):
+        WordAdapter.apply_style([t], StyleParams(border={"style": "single"}))
+
+
+def test_apply_style_unsupported_target_raises_not_silent():
+    class Alien:
+        pass
+
+    with pytest.raises(ValueError, match="unsupported kind"):
+        WordAdapter.apply_style([Alien()], StyleParams(bold=True))
+
+
+# --- word_delete_element (capability gap found by intent battery) ------------
+
+def test_delete_paragraph():
+    doc = Document()
+    doc.add_paragraph("keep")
+    doc.add_paragraph("remove me")
+    doc.add_paragraph("keep too")
+    result = WordAdapter.delete_elements([doc.paragraphs[1]])
+    assert [p.text for p in doc.paragraphs] == ["keep", "keep too"]
+    assert "remove me" in result["affected"][0]
+
+
+def test_delete_table():
+    doc = Document()
+    doc.add_paragraph("text")
+    doc.add_table(rows=1, cols=1)
+    assert len(doc.tables) == 1
+    WordAdapter.delete_elements([doc.tables[0]])
+    assert len(doc.tables) == 0
+
+
+def test_delete_via_tool_dispatch(word_doc_path):
+    from office_agent.tools import REGISTRY, ToolContext
+
+    ctx = ToolContext()
+    try:
+        opened = REGISTRY.dispatch(ctx, "open_document", {"file_path": str(word_doc_path)})
+        doc_id = opened["doc_id"]
+        session = ctx.sessions.get(doc_id)
+        # Insert through the tool layer so the pre-delete state is snapshotted
+        # (direct in-memory mutation would bypass undo history).
+        inserted = REGISTRY.dispatch(
+            ctx,
+            "word_insert_element",
+            {"doc_id": doc_id, "element_type": "paragraph", "content": "DELETE_TARGET_XYZ"},
+        )
+        assert inserted["success"], inserted
+        result = REGISTRY.dispatch(
+            ctx,
+            "word_delete_element",
+            {"doc_id": doc_id, "selector": {"type": "text_match", "contains": "DELETE_TARGET_XYZ"}},
+        )
+        assert result["success"], result
+        texts = [p.text for p in session.doc.paragraphs]
+        assert "DELETE_TARGET_XYZ" not in texts
+        # Deletion is snapshotted -> undoable
+        undo = REGISTRY.dispatch(ctx, "undo", {"doc_id": doc_id, "steps": 1})
+        assert undo["success"]
+        assert any("DELETE_TARGET_XYZ" in p.text for p in ctx.sessions.get(doc_id).doc.paragraphs)
+    finally:
+        ctx.sessions.close_all()

@@ -64,7 +64,14 @@ lost formatting, garbled text, overlapping elements)?
 
 Report via the report_verification tool ONLY. Be precise: name the page number \
 and the element, describe the discrepancy concretely. If the rendering shows \
-the change correctly, pass it — do not invent problems. severity='blocking' \
-means the step must be repaired; 'minor' is a cosmetic note that does not \
-block.
+the change correctly, pass it — do not invent problems.
+
+Severity calibration — judge ONLY against the step's stated intent:
+- 'blocking': the requested change is missing, wrong, in the wrong place, \
+duplicated, or something unrelated got broken.
+- 'minor': everything requested is correct but you noticed a cosmetic detail \
+the instruction never asked for (default chart styling, plain axis labels, \
+font substitution nuances, spacing taste). Default appearances of correctly-\
+created elements are NEVER blocking. When all requested changes are present \
+and correct, set passed=true even if minor notes exist.
 """

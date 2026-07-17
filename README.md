@@ -1,170 +1,94 @@
-# Office Agent - LangChain-based Word/Excel Editing Tools
+# Office Agent
 
-基于 LangChain 的 Word 和 Excel 文档编辑工具封装。
+在 Mac 上用自然语言编辑 Word / Excel 文档的 LLM agent，带**真实渲染截图验证闭环**：
+每步编辑后由 Word/Excel 本体渲染出页面截图，交给独立的多模态验证器审查，失败则带着
+精确的问题描述（页码、元素、差在哪）定向修复——不靠盲目重试。
 
-## 核心特征
+## 核心特性
 
-1. **结构化定位**：使用结构化路径而非自然语言描述位置
-2. **预览优先**：所有修改操作先预览，确认后执行
-3. **批量操作**：支持范围和条件选择器
-4. **快照与回滚**：自动创建快照，支持撤销和恢复
+- **截图验证闭环**：AppleScript 驱动 Word/Excel 导出 PDF → PyMuPDF 转页面 PNG →
+  像素级 diff 找出变更页（红框标注变更区域）→ 独立无状态验证调用给出结构化裁决。
+- **零弹窗**：工作副本放在 Office 应用各自的沙盒容器内，配合导出前预删除目标文件、
+  关闭 display alerts、不抢焦点——正常使用中不会出现任何 macOS 权限弹窗
+  （仅首次需要在系统设置里授予一次自动化权限，`office-agent doctor` 会引导）。
+- **计划 + 反问**：多步任务先出计划（终端实时清单 ☐/⏳/✅），指令模糊时用
+  多选题/自由问答向用户澄清（questionary 交互）。
+- **反暴力重复**：错误签名归一化；同类失败两次强制换策略；再失败改问用户；
+  每步/每任务有硬预算上限。
+- **安全**：原文件在显式确认前**永不写入**（默认另存 `<name>.edited.<ext>`，
+  覆盖原文件需要交互确认或 `--yes`）；每次变更自动快照，随时 `undo`；
+  文档内容视为数据而非指令（防 prompt injection）。
 
 ## 安装
 
 ```bash
-pip install -r requirements.txt
+cd office_agent
+pip install -e .
 ```
 
-## 配置
+前置条件：
+- macOS + Microsoft Word / Excel（渲染验证用）
+- `MINIMAX_API_KEY` 环境变量（[MiniMax token plan](https://platform.minimaxi.com/docs/token-plan/quickstart)，
+  Anthropic 兼容端点，模型 MiniMax-M3，原生多模态）
 
-### 使用 OpenRouter (推荐)
-
-默认使用 OpenRouter，需要设置环境变量：
+首次使用先自检（会引导完成一次性的自动化授权）：
 
 ```bash
-export OPENROUTER_API_KEY="your-openrouter-api-key"
+office-agent doctor
 ```
 
-支持的模型格式：`provider/model-name`，例如：
-- `openai/gpt-4`
-- `openai/gpt-3.5-turbo`
-- `anthropic/claude-3-opus`
-- `google/gemini-pro`
-
-### 使用 OpenAI 直接访问
+## 用法
 
 ```bash
-export OPENAI_API_KEY="your-openai-api-key"
-```
+# 一次性任务（完成后进入 REPL 继续对话）
+office-agent "把第一段改成 Times New Roman 12 号，并加粗标题" report.docx
 
-然后在代码中设置 `use_openrouter=False`
+# 纯一次性
+office-agent "..." report.docx --one-shot
 
-## 快速开始
+# 直接进 REPL
+office-agent
 
-```python
-import os
-from office_agent.agent import create_office_agent
-
-# 设置 OpenRouter API Key (推荐)
-os.environ["OPENROUTER_API_KEY"] = "your-openrouter-api-key"
-
-# 创建 agent (默认使用 OpenRouter)
-agent = create_office_agent(
-    model_name="openai/gpt-4",  # OpenRouter 模型格式
-    temperature=0.0
-)
-
-# 使用 agent 编辑文档
-result = agent.invoke({
-    "input": "打开 test.xlsx，在 Sheet1 的 A1 单元格写入 'Hello World'"
-})
-```
-
-或者使用 OpenAI 直接访问：
-
-```python
-os.environ["OPENAI_API_KEY"] = "your-openai-api-key"
-agent = create_office_agent(
-    model_name="gpt-4",
-    temperature=0.0,
-    use_openrouter=False
-)
-```
-
-## 工具列表
-
-### 通用工具
-- `open_document`: 打开文档
-- `get_structure`: 获取文档结构
-- `apply_changes`: 应用预览的修改
-- `save_document`: 保存文档
-- `undo`: 撤销上一次修改
-- `restore_snapshot`: 恢复到指定快照
-
-### Excel 工具
-- `excel_read_cells`: 读取单元格
-- `excel_write_cells`: 写入单元格
-- `excel_edit_formula`: 编辑公式
-- `excel_edit_style`: 修改样式
-- `excel_insert_rows_cols`: 插入行/列
-- `excel_create_chart`: 创建图表
-- `excel_conditional_select`: 条件选择单元格
-
-### Word 工具
-- `word_read_content`: 读取内容
-- `word_edit_text`: 编辑文本
-- `word_edit_style`: 修改样式
-- `word_insert_element`: 插入元素
-- `word_find_replace`: 查找替换
-
-## 使用示例
-
-### Excel 示例
-
-```python
-from office_agent.tools.langchain_tools import get_all_tools
-from langchain.agents import initialize_agent
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(model="gpt-4")
-tools = get_all_tools()
-
-agent = initialize_agent(tools, llm, agent="zero-shot-react-description", verbose=True)
-
-result = agent.run("打开 data.xlsx，在 Sheet1 的 A1 到 C3 区域写入数据")
-```
-
-### Word 示例
-
-```python
-result = agent.run("打开 report.docx，将第3段替换为 'Updated content'")
+# 常用选项
+#   --yes               允许覆盖原文件（非交互场景）
+#   --no-visual-verify  跳过截图验证（纯数据编辑提速）
+#   --verbose / -v      显示工具调用详情
+#   --non-interactive   禁止提问（自动选安全默认项）
 ```
 
 ## 架构
 
 ```
-office_agent/
-├── core/              # 核心框架
-│   ├── document_manager.py
-│   ├── snapshot_manager.py
-│   └── selector_parser.py
-├── adapters/          # 适配器层
-│   ├── word_adapter.py
-│   └── excel_adapter.py
-├── tools/             # LangChain 工具
-│   ├── base_tools.py
-│   ├── word_tools.py
-│   ├── excel_tools.py
-│   └── langchain_tools.py
-├── schemas/           # 数据模型
-│   ├── selector.py
-│   └── operations.py
-├── test-dev/          # 测试开发目录
-│   ├── test_validation.py
-│   ├── test_functional.py
-│   ├── test_agent.py
-│   └── TESTING.md
-├── agent.py           # Agent 创建函数
-├── example.py         # 使用示例
-└── quick_start.py     # 快速开始
+cli.py                REPL / one-shot / doctor
+agent/
+  loop.py             harness 主循环：计划→反问→执行→渲染验证→定向修复
+  verifier.py         独立无状态视觉验证调用（强制结构化裁决）
+  budget.py           错误签名 + 升级阶梯（重试→换策略→问用户）
+  history.py          Anthropic Messages 历史管理（图片不进主循环历史）
+tools/
+  registry.py         pydantic 模型 → tool schema；统一错误包装；自动快照
+  session/word/excel  直接应用式编辑工具（返回 matched_count/affected/error）
+  interaction_tools   propose_plan / update_plan / ask_user / render_preview
+render/
+  applescript.py      Word/Excel → PDF（容器内、零弹窗、超时+错误分类）
+  pdf_to_images.py    PDF → PNG（PyMuPDF，144dpi）
+  page_diff.py        变更页检测 + bbox 红框标注
+core/
+  session.py          工作副本隔离（原文件只在显式 save 时写）
+  snapshot_manager.py 每步字节快照 + 持久化索引（undo/restore）
+adapters/             python-docx / openpyxl 无状态操作层
 ```
 
 ## 测试
 
-所有测试代码和文档位于 `test-dev/` 目录：
-
 ```bash
-cd test-dev
-python test_validation.py    # 基础验证
-python test_functional.py   # 功能测试
-python test_agent.py         # Agent 集成测试
+pytest -q                    # 离线测试（单元 + 工具 + FakeLLM 循环测试）
+pytest -m mac_office -q      # 本机渲染集成测试（需要 Word/Excel）
+OFFICE_AGENT_LIVE_TEST=1 pytest -m live -q   # 真实 MiniMax 冒烟（花钱，默认跳过）
 ```
 
-详细测试指南请参考 `test-dev/TESTING.md`。
+## 已知限制
 
-## 注意事项
-
-1. 所有修改操作都是预览模式，需要调用 `apply_changes` 才能实际应用
-2. 使用结构化选择器定位元素，避免歧义
-3. 修改前建议先调用 `get_structure` 了解文档结构
-4. 系统会自动创建快照，支持撤销操作
+- Excel 图表由 openpyxl 生成，默认样式较朴素（无坐标轴标签微调）。
+- Word 渲染首次冷启动可能需要 1-2 分钟（Word 本体启动）；会话内温启动约 0.6 秒。
+- 段落级 find_replace 跨格式边界的匹配会展平该段的 run 格式（结果中带 warning）。

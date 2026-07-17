@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+
+# Secrets / env
+.env
+
+# Session working state
+.office_agent/
+.snapshots/
+
+# macOS
+.DS_Store
+
+# Local logs
+.claude/hooks/.logs/
+
+# Office temp/lock files
+~$*.docx
+~$*.xlsx

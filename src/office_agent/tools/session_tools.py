@@ -36,6 +36,14 @@ class SaveDocumentInput(BaseModel):
             "another existing path). Requires user approval."
         ),
     )
+    accept_fidelity_loss: bool = Field(
+        False,
+        description=(
+            "Must be true to save an Excel workbook that would DROP parts the "
+            "engine cannot preserve (see excel_fidelity_report). Requires "
+            "explicit user consent after showing them exactly what is lost."
+        ),
+    )
 
 
 class UndoInput(BaseModel):
@@ -136,8 +144,9 @@ def open_document(ctx: ToolContext, p: OpenDocumentInput) -> dict:
         "original_path": str(session.original_path),
         "summary": summary,
     }
-    if session.preservation_warnings:
-        result["warnings"] = session.preservation_warnings
+    warnings = session.fidelity_warnings()
+    if warnings:
+        result["warnings"] = warnings
     return result
 
 
@@ -160,15 +169,41 @@ def get_structure(ctx: ToolContext, p: GetStructureInput) -> dict:
     "save_document",
     "Persist the edited document. Without a path, saves to <name>.edited.<ext> next "
     "to the original. Overwriting any pre-existing file requires overwrite=true, "
-    "which must only be used after explicit user approval.",
+    "which must only be used after explicit user approval. If the save would drop "
+    "workbook parts the engine cannot preserve, it fails until the user explicitly "
+    "consents via accept_fidelity_loss=true.",
     SaveDocumentInput,
     mutates=False,
 )
 def save_document(ctx: ToolContext, p: SaveDocumentInput) -> dict:
     session = ctx.sessions.get(p.doc_id)
     dest = p.path if p.path else str(session.default_output_path())
-    saved = session.save_to(dest, overwrite=p.overwrite)
+    saved = session.save_to(
+        dest, overwrite=p.overwrite, accept_fidelity_loss=p.accept_fidelity_loss
+    )
     return {"saved_path": str(saved)}
+
+
+class ExcelFidelityReportInput(BaseModel):
+    doc_id: str = Field(..., description="Document id")
+
+
+@REGISTRY.register(
+    "excel_fidelity_report",
+    "List the workbook parts (charts, pivots, slicers, comments, …) that the "
+    "editing engine cannot preserve and that would be LOST on save. Empty list "
+    "means saving is fully lossless. Check this before saving a pre-existing "
+    "workbook instead of attempting a save and failing.",
+    ExcelFidelityReportInput,
+)
+def excel_fidelity_report(ctx: ToolContext, p: ExcelFidelityReportInput) -> dict:
+    session = ctx.sessions.get(p.doc_id)
+    return {
+        "at_risk_parts": [
+            {"path": e.path, "bytes": e.size, "category": e.category}
+            for e in getattr(session, "fidelity_report", [])
+        ]
+    }
 
 
 @REGISTRY.register(

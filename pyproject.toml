@@ -33,6 +33,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "mac_office: requires local Microsoft Word/Excel (deselect with '-m \"not mac_office\"')",
+    "mac_office: drives real Microsoft Word/Excel and MAY TRIGGER macOS permission dialogs — run only when a user is present, never unattended",
     "live: requires MINIMAX_API_KEY and OFFICE_AGENT_LIVE_TEST=1",
 ]

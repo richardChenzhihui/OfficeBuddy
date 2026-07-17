@@ -14,14 +14,21 @@ pytestmark = pytest.mark.mac_office
 
 
 @pytest.fixture
-def word_session(word_doc_path):
+def _container_work_root(monkeypatch):
+    """Render tests MUST place working copies inside the app sandbox
+    containers (zero-dialog invariant) — undo conftest's unit-test override."""
+    monkeypatch.delenv("OFFICE_AGENT_WORK_ROOT", raising=False)
+
+
+@pytest.fixture
+def word_session(word_doc_path, _container_work_root):
     session = EditSession(str(word_doc_path))
     yield session
     session.cleanup()
 
 
 @pytest.fixture
-def excel_session(excel_doc_path):
+def excel_session(excel_doc_path, _container_work_root):
     session = EditSession(str(excel_doc_path))
     yield session
     session.cleanup()

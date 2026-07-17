@@ -631,9 +631,12 @@ def test_insert_table_bad_content_error_shows_example_and_got():
         WordAdapter.insert_element(doc, None, "table", 42)
 
 
-# --- pre-existing chart/image loss disclosure (openpyxl reader limitation) ---
+# --- fidelity guard: intentional correction of the old substring heuristic ---
+# openpyxl-authored charts round-trip SAFELY (verified empirically), so the old
+# warn-on-any-xl/charts/ behavior was a false positive. The part-inventory
+# guard warns only when a part would actually disappear.
 
-def test_open_xlsx_with_charts_warns(tmp_path):
+def test_open_xlsx_with_safe_chart_does_not_warn(tmp_path):
     from openpyxl import Workbook
 
     from office_agent.adapters.excel_adapter import ExcelAdapter as _EA
@@ -651,8 +654,7 @@ def test_open_xlsx_with_charts_warns(tmp_path):
     try:
         result = REGISTRY.dispatch(ctx, "open_document", {"file_path": str(src)})
         assert result["success"], result
-        assert "warnings" in result, "chart-loss warning missing"
-        assert "LOST" in result["warnings"][0]
+        assert "warnings" not in result, result.get("warnings")
     finally:
         ctx.sessions.close_all()
 

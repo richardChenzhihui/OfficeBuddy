@@ -18,6 +18,13 @@ class ExcelAdapter:
     def read_cells(
         worksheet: Any, coords: Optional[Coords], include_formula: bool = False
     ) -> Dict[str, Any]:
+        from openpyxl.cell.rich_text import CellRichText
+
+        def _plain(value):
+            # rich_text=True loads keep intra-cell formatting; tools return
+            # the concatenated plain text (JSON-safe) rather than the object.
+            return str(value) if isinstance(value, CellRichText) else value
+
         data: List[List[Any]] = []
         formulas: List[List[Any]] = []
         if coords is None:
@@ -31,7 +38,7 @@ class ExcelAdapter:
                 max_col=max_col or worksheet.max_column,
             )
         for row in rows:
-            data.append([cell.value for cell in row])
+            data.append([_plain(cell.value) for cell in row])
             formulas.append(
                 [cell.value if cell.data_type == "f" else None for cell in row]
             )

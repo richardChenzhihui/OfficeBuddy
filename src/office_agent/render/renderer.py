@@ -22,6 +22,10 @@ class Renderer:
         self._cache_hash: Optional[str] = None
         self._cache: Optional[Tuple[Path, List[PageImage]]] = None
         self.previous: Optional[List[PageImage]] = None
+        # Last VERIFIED render — the diff baseline for visual verification.
+        # Set by the agent loop after a passing verdict; ad hoc previews
+        # (render_preview) must never move it.
+        self.baseline: Optional[List[PageImage]] = None
 
     def render(self, sheet: Optional[str] = None, timeout: float = 120.0) -> List[PageImage]:
         self.session.flush()
@@ -46,7 +50,25 @@ class Renderer:
             self.previous = self._cache[1]
         self._cache_hash = key
         self._cache = (pdf_path, images)
+        self._prune_render_dirs()
         return images
+
+    def _prune_render_dirs(self, keep: int = 6) -> None:
+        """Bound disk usage: drop old render dirs, never ones still referenced
+        by the current cache, previous render, or the verified baseline."""
+        protected = set()
+        for images in (self._cache[1] if self._cache else None, self.previous, self.baseline):
+            if images:
+                protected.update(img.path.parent for img in images)
+        dirs = sorted(
+            (d for d in self.render_dir.iterdir() if d.is_dir()),
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        import shutil
+
+        for stale in [d for d in dirs if d not in protected][keep:]:
+            shutil.rmtree(stale, ignore_errors=True)
 
     @property
     def current_pdf(self) -> Optional[Path]:

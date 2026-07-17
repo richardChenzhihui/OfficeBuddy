@@ -109,6 +109,25 @@ def doctor():
         console.print("❌ MINIMAX_API_KEY 未设置（加入 ~/.zshrc 后重开终端）")
         ok = False
 
+    import subprocess as _sp
+
+    def _app_running(app: str) -> bool:
+        proc = _sp.run(
+            [
+                "osascript",
+                "-e",
+                f'tell application "System Events" to (name of processes) contains "{app}"',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return proc.stdout.strip() == "true"
+
+    apps_running_before = {
+        app: _app_running(app) for app in ("Microsoft Word", "Microsoft Excel")
+    }
+
     findings = check_render_environment()
     for name in ("Microsoft Word", "Microsoft Excel"):
         f = findings[name]
@@ -116,6 +135,11 @@ def doctor():
             console.print(f"❌ {name} 未安装")
             ok = False
             continue
+        if not f["container"]:
+            console.print(
+                f"⚠️ {name} 沙盒容器不存在 — 工作目录将退回 ~/.office_agent，"
+                "渲染时可能出现文件访问弹窗（先手动打开一次该应用即可创建容器）"
+            )
         if f["automation_permitted"]:
             console.print(f"✅ {name} 自动化权限已授予")
         else:
@@ -155,6 +179,14 @@ def doctor():
             ok = False
         finally:
             _shutil.rmtree(tmp, ignore_errors=True)
+            # Quit apps the probe launched; leave user-opened ones alone.
+            for app, was_running in apps_running_before.items():
+                if not was_running and _app_running(app):
+                    _sp.run(
+                        ["osascript", "-e", f'tell application "{app}" to quit saving no'],
+                        capture_output=True,
+                        timeout=30,
+                    )
 
     console.print()
     if ok:

@@ -73,4 +73,6 @@ class ExcelSelector(BaseModel):
                 f"Invalid Excel range '{self.range}': {exc}. "
                 "Use A1-style ranges like 'A1', 'A1:B10', or 'A:A'."
             ) from exc
-        return (min_row, min_col, max_row, max_col)
+        # Whole-column ('A:A') / whole-row ('1:1') ranges yield None mins from
+        # openpyxl — normalize so downstream arithmetic never sees None.
+        return (min_row or 1, min_col or 1, max_row, max_col)

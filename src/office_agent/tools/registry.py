@@ -89,6 +89,13 @@ class ToolRegistry:
             result = tool.handler(ctx, params)
         except (SelectorError, ValueError, KeyError, PermissionError, FileNotFoundError) as exc:
             return {"success": False, "error": str(exc), "error_type": type(exc).__name__}
+        except Exception as exc:  # noqa: BLE001 — the envelope contract beats purity:
+            # every tool call must return {success, error}, never raise.
+            return {
+                "success": False,
+                "error": f"Unexpected {type(exc).__name__} in {name}: {exc}",
+                "error_type": type(exc).__name__,
+            }
 
         result.setdefault("success", True)
         doc_id = getattr(params, "doc_id", None)

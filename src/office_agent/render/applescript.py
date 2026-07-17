@@ -10,7 +10,12 @@ Every script runs under both an AppleScript `with timeout` and a subprocess
 timeout, so a stuck dialog can never block forever.
 """
 import subprocess
+import threading
 from pathlib import Path
+
+# All Word/Excel automation is serialized: 'active document'/'active workbook'
+# references make concurrent exports race each other.
+_AUTOMATION_LOCK = threading.Lock()
 
 
 class RenderError(RuntimeError):
@@ -52,12 +57,13 @@ def _classify(stderr: str, app: str) -> RenderError:
 
 def run_applescript(script: str, timeout: float, app: str) -> str:
     try:
-        proc = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        with _AUTOMATION_LOCK:
+            proc = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
     except subprocess.TimeoutExpired as exc:
         raise RenderTimeout(
             f"{app} export exceeded {timeout}s — a dialog may be blocking it, or "
@@ -69,9 +75,10 @@ def run_applescript(script: str, timeout: float, app: str) -> str:
     return proc.stdout
 
 
-def _q(path: Path) -> str:
-    """Quote a POSIX path for embedding in an AppleScript string literal."""
-    return str(path).replace("\\", "\\\\").replace('"', '\\"')
+def _q(value) -> str:
+    """Escape ANY string (path, sheet name, …) for embedding inside an
+    AppleScript string literal: backslashes first, then quotes."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
 
 def export_docx_to_pdf(docx_path: Path, pdf_path: Path, timeout: float = 120.0) -> Path:
@@ -104,7 +111,7 @@ def export_xlsx_to_pdf(
     pdf_path.unlink(missing_ok=True)
     activate_sheet = ""
     if sheet:
-        sheet_escaped = sheet.replace('"', '\\"')
+        sheet_escaped = _q(sheet)
         activate_sheet = f'''
         try
             activate object worksheet "{sheet_escaped}" of theBook

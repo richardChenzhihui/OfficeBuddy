@@ -31,7 +31,10 @@ class SaveDocumentInput(BaseModel):
     )
     overwrite: bool = Field(
         False,
-        description="Must be true to overwrite the original file (requires user approval)",
+        description=(
+            "Must be true to overwrite ANY pre-existing file (the original or "
+            "another existing path). Requires user approval."
+        ),
     )
 
 
@@ -153,8 +156,8 @@ def get_structure(ctx: ToolContext, p: GetStructureInput) -> dict:
 @REGISTRY.register(
     "save_document",
     "Persist the edited document. Without a path, saves to <name>.edited.<ext> next "
-    "to the original. Overwriting the original file requires overwrite=true, which "
-    "must only be used after explicit user approval.",
+    "to the original. Overwriting any pre-existing file requires overwrite=true, "
+    "which must only be used after explicit user approval.",
     SaveDocumentInput,
     mutates=False,
 )

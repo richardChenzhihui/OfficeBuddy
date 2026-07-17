@@ -171,10 +171,39 @@ class ExcelAdapter:
             )
         chart = chart_classes[chart_type]()
 
-        data = Reference(
-            worksheet, min_col=min_col, min_row=min_row, max_col=max_col, max_row=max_row
+        titles = options.get("titles_from_data", True)
+        # Conventional layout: first column holds category labels. Without
+        # set_categories they'd become a bogus extra data series.
+        use_categories = (
+            options.get("first_column_as_categories", True)
+            and max_col is not None
+            and max_col > min_col
         )
-        chart.add_data(data, titles_from_data=options.get("titles_from_data", True))
+        if use_categories:
+            data = Reference(
+                worksheet,
+                min_col=min_col + 1,
+                min_row=min_row,
+                max_col=max_col,
+                max_row=max_row,
+            )
+            categories = Reference(
+                worksheet,
+                min_col=min_col,
+                min_row=min_row + (1 if titles else 0),
+                max_row=max_row,
+            )
+            chart.add_data(data, titles_from_data=titles)
+            chart.set_categories(categories)
+        else:
+            data = Reference(
+                worksheet,
+                min_col=min_col,
+                min_row=min_row,
+                max_col=max_col,
+                max_row=max_row,
+            )
+            chart.add_data(data, titles_from_data=titles)
         if "title" in options:
             chart.title = options["title"]
         anchor = options.get("chart_cell", "E1")

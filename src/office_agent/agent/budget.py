@@ -46,7 +46,7 @@ class StepBudget:
     tool_calls: int = 0
     signatures: List[str] = field(default_factory=list)
     strategy_switched: bool = False
-    user_asked: bool = False
+    user_asks: int = 0
 
 
 @dataclass
@@ -54,6 +54,7 @@ class BudgetTracker:
     limits: Budgets
     steps: Dict[int, StepBudget] = field(default_factory=dict)
     total_tool_calls: int = 0
+    end_turn_repairs: int = 0
 
     def step(self, index: int) -> StepBudget:
         return self.steps.setdefault(index, StepBudget())
@@ -64,6 +65,18 @@ class BudgetTracker:
 
     def task_exhausted(self) -> bool:
         return self.total_tool_calls >= self.limits.max_tool_calls_per_task
+
+    def record_end_turn_repair(self) -> None:
+        self.end_turn_repairs += 1
+
+    def end_turn_exhausted(self) -> bool:
+        """Hard cap on the end-turn verify->repair cycle, independent of tool
+        calls, so a model that stops calling tools cannot loop forever."""
+        return self.end_turn_repairs >= self.limits.max_attempts_per_step
+
+    def reset_steps(self) -> None:
+        """New plan: per-step budgets restart; task-level counters persist."""
+        self.steps.clear()
 
     def record_failure(self, step_index: int, signature: str) -> Action:
         budget = self.step(step_index)

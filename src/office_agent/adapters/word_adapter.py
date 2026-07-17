@@ -111,6 +111,15 @@ class WordAdapter:
 
     @staticmethod
     def apply_style(elements: List[Any], style: StyleParams) -> Dict[str, Any]:
+        # Validate everything BEFORE mutating: a failed call must not leave
+        # half-applied styling behind.
+        if style.alignment and style.alignment not in _ALIGNMENT_MAP:
+            raise ValueError(
+                f"Invalid alignment '{style.alignment}': "
+                f"expected one of {sorted(_ALIGNMENT_MAP)}."
+            )
+        if style.color:
+            _parse_color(style.color)
         affected: List[str] = []
         for element in elements:
             if hasattr(element, "runs"):  # Paragraph: style runs AND paragraph format
@@ -163,18 +172,22 @@ class WordAdapter:
                 isinstance(row, list) for row in content
             ):
                 raise ValueError("Table content must be a list of row lists.")
+            # Validate position BEFORE mutating: a failed call must leave no
+            # orphaned table behind.
+            if position is not None and not 0 <= position < len(doc.paragraphs):
+                raise ValueError(
+                    f"Insert position {position} out of range: "
+                    f"document has {len(doc.paragraphs)} paragraphs."
+                )
             cols = len(content[0]) if content else 0
             table = doc.add_table(rows=len(content), cols=cols)
             for i, row_data in enumerate(content):
                 for j, cell_data in enumerate(row_data):
                     table.rows[i].cells[j].text = str(cell_data)
             if position is not None:
-                if not 0 <= position < len(doc.paragraphs):
-                    raise ValueError(
-                        f"Insert position {position} out of range: "
-                        f"document has {len(doc.paragraphs)} paragraphs."
-                    )
-                doc.paragraphs[position]._element.addnext(table._element)
+                # Insert BEFORE the position paragraph — same semantics as
+                # element_type='paragraph'.
+                doc.paragraphs[position]._element.addprevious(table._element)
             return {"element_type": "table", "rows": len(content), "cols": cols}
 
         if element_type == "paragraph":
@@ -218,21 +231,27 @@ class WordAdapter:
         for element in elements:
             if not hasattr(element, "text"):
                 continue
-            occurrences = element.text.count(find)
+            original_text = element.text
+            occurrences = original_text.count(find)
             if not occurrences:
                 continue
-            # Replace inside individual runs first to preserve formatting.
             if hasattr(element, "runs"):
-                for run in element.runs:
-                    if find in run.text:
-                        run.text = run.text.replace(find, replace)
-                if find in element.text:
-                    # Occurrences spanning run boundaries: paragraph-level fallback,
-                    # which flattens the paragraph's run formatting.
-                    element.text = element.text.replace(find, replace)
+                # Decide run-level vs paragraph-level from PRE-mutation counts:
+                # re-scanning after replacement misfires whenever `replace`
+                # itself contains `find` (e.g. cat -> cats).
+                run_occurrences = sum(run.text.count(find) for run in element.runs)
+                if run_occurrences == occurrences:
+                    # Every occurrence sits inside a single run — formatting safe.
+                    for run in element.runs:
+                        if find in run.text:
+                            run.text = run.text.replace(find, replace)
+                else:
+                    # Some occurrence spans a run boundary: paragraph-level
+                    # fallback, which flattens the paragraph's run formatting.
+                    element.text = original_text.replace(find, replace)
                     formatting_lost_in.append(element.text[:50])
             else:
-                element.text = element.text.replace(find, replace)
+                element.text = original_text.replace(find, replace)
             count += occurrences
             affected.append(f"'{element.text[:50]}'")
 

@@ -98,21 +98,41 @@ def verify_edit(
             }
         )
 
-    response = llm.create(
-        system=SYSTEM_VERIFIER,
-        messages=[{"role": "user", "content": content}],
-        tools=[REPORT_VERIFICATION_TOOL],
-        tool_choice={"type": "tool", "name": "report_verification"},
-        max_tokens=2048,
+    for attempt in range(2):  # one retry on a malformed verdict
+        response = llm.create(
+            system=SYSTEM_VERIFIER,
+            messages=[{"role": "user", "content": content}],
+            tools=[REPORT_VERIFICATION_TOOL],
+            tool_choice={"type": "tool", "name": "report_verification"},
+            max_tokens=2048,
+        )
+        for block in response.content:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and block.name == "report_verification"
+            ):
+                data = block.input
+                return VerificationResult(
+                    passed=bool(data.get("passed")),
+                    problems=list(data.get("problems", [])),
+                    confidence=float(data.get("confidence", 0.0)),
+                )
+    # Fail CLOSED: a verdict we couldn't parse must not silently count as a
+    # pass — the escalation ladder bounds how often this can repeat.
+    return VerificationResult(
+        passed=False,
+        problems=[
+            {
+                "page": 0,
+                "element_hint": "verifier",
+                "description": (
+                    "The verifier did not produce a structured verdict "
+                    "(malformed/truncated response, twice). Treat the step as "
+                    "unverified: re-check the result via render_preview or "
+                    "structural reads before marking it done."
+                ),
+                "severity": "blocking",
+            }
+        ],
+        confidence=0.0,
     )
-    for block in response.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == "report_verification":
-            data = block.input
-            return VerificationResult(
-                passed=bool(data.get("passed")),
-                problems=list(data.get("problems", [])),
-                confidence=float(data.get("confidence", 0.0)),
-            )
-    # Model failed to produce the forced tool call — treat as inconclusive pass
-    # with a note rather than blocking forever.
-    return VerificationResult(passed=True, confidence=0.0, skipped=True)

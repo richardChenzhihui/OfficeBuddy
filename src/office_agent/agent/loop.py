@@ -99,6 +99,7 @@ class AgentSession:
         self.visual_dirty: Dict[str, set] = {}
         self.pending_ops: Dict[str, List[str]] = {}
         self.saved_paths: List[str] = []
+        self.abort_requested = False
 
     # ------------------------------------------------------------------ turn
 
@@ -128,9 +129,21 @@ class AgentSession:
             ]
             if not tool_uses:
                 repair = self._end_turn_safety_net()
-                if repair:
+                if repair and not self.budget.end_turn_exhausted():
+                    self.budget.record_end_turn_repair()
                     self.history.add_user_text(repair)
                     continue
+                if repair:
+                    self.ui.notify(
+                        "验证仍未通过且修复次数已达上限，停止本回合。"
+                        "文档保持当前状态（原文件未动，可用 undo 回退）。"
+                    )
+                    return TurnResult(
+                        text=final_text,
+                        plan=self.plan,
+                        saved_paths=self.saved_paths,
+                        aborted=True,
+                    )
                 return TurnResult(
                     text=final_text, plan=self.plan, saved_paths=self.saved_paths
                 )
@@ -143,6 +156,15 @@ class AgentSession:
                 )
             self.history.add_tool_results(results)
 
+            if self.abort_requested:
+                self.ui.notify("按用户要求中止任务。")
+                return TurnResult(
+                    text=final_text,
+                    plan=self.plan,
+                    saved_paths=self.saved_paths,
+                    aborted=True,
+                )
+
     # ----------------------------------------------------------- tool routing
 
     def _tools(self) -> List[Dict[str, Any]]:
@@ -152,7 +174,27 @@ class AgentSession:
         return self.plan.current_index if self.plan else 0
 
     def _handle_tool(self, name: str, tool_input: Dict[str, Any]):
-        """Returns (content, is_error) for the tool_result block."""
+        """Returns (content, is_error) for the tool_result block.
+
+        Never raises: any unexpected exception becomes an error envelope, so
+        every tool_use always gets its matching tool_result.
+        """
+        try:
+            return self._handle_tool_inner(name, tool_input)
+        except Exception as exc:  # noqa: BLE001 — pairing invariant beats purity
+            return (
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Internal harness error in {name}: {exc}",
+                        "error_type": type(exc).__name__,
+                    },
+                    ensure_ascii=False,
+                ),
+                True,
+            )
+
+    def _handle_tool_inner(self, name: str, tool_input: Dict[str, Any]):
         self.ui.tool_call(name, tool_input)
 
         if self.budget.task_exhausted() and name not in HARNESS_TOOLS:
@@ -180,9 +222,10 @@ class AgentSession:
         if name == "render_preview":
             return self._on_render_preview(tool_input)
 
-        # Overwrite gate: intercept BEFORE dispatch.
-        if name == "save_document" and tool_input.get("overwrite"):
-            gate = self._overwrite_gate(tool_input)
+        # Save gate: intercept BEFORE dispatch whenever the target is an
+        # existing file this session hasn't already written.
+        if name == "save_document":
+            gate = self._save_gate(tool_input)
             if gate is not None:
                 return gate
 
@@ -216,6 +259,8 @@ class AgentSession:
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}), True
         self.plan = Plan.from_descriptions(params.steps)
+        # Fresh plan -> fresh per-step budgets (task-level counters persist).
+        self.budget.reset_steps()
         self.ui.plan_update(self.plan)
         return (
             json.dumps({"success": True, "steps_recorded": len(params.steps)}),
@@ -245,7 +290,25 @@ class AgentSession:
 
         # 'done' is a verification checkpoint.
         step_desc = self.plan.steps[params.step_index].description
-        verdicts = self._verify_pending(step_desc)
+        try:
+            verdicts = self._verify_pending(step_desc)
+        except Exception as exc:  # keep tool_use/tool_result pairing intact
+            self.plan.set_status(params.step_index, "in_progress")
+            self.ui.plan_update(self.plan)
+            return (
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": (
+                            f"Verification errored ({type(exc).__name__}: {exc}). "
+                            "The step remains in_progress; check the document "
+                            "state (render_preview / re-read) before retrying."
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+                True,
+            )
         blocking = [v for v in verdicts.values() if v.blocking]
         if blocking:
             self.plan.set_status(params.step_index, "in_progress")
@@ -287,6 +350,27 @@ class AgentSession:
         except Exception as exc:
             return json.dumps({"success": False, "error": str(exc)}), True
         try:
+            # Whitelist the sheet name BEFORE it can reach the AppleScript
+            # template: it is a free-form, model-chosen string.
+            if params.sheet:
+                session = self.ctx.sessions.get(params.doc_id)
+                if (
+                    session.doc_type != "excel"
+                    or params.sheet not in session.doc.sheetnames
+                ):
+                    return (
+                        json.dumps(
+                            {
+                                "success": False,
+                                "error": (
+                                    f"Sheet '{params.sheet}' not found: workbook "
+                                    f"sheets are {getattr(session.doc, 'sheetnames', [])}."
+                                ),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        True,
+                    )
             renderer = self._renderer(params.doc_id)
             images = renderer.render(
                 sheet=params.sheet, timeout=self.config.render_timeout
@@ -332,6 +416,17 @@ class AgentSession:
                 "targeted edit; or use render_preview to look at the document."
             )
         elif action == Action.ASK_USER:
+            step_budget = self.budget.step(self._current_step())
+            step_budget.user_asks += 1
+            if step_budget.user_asks > 2:
+                # The user has already been asked twice about this step:
+                # stop instead of nagging forever.
+                self.abort_requested = True
+                result["escalation"] = (
+                    "Repeated failures persist after user guidance. The task "
+                    "is being aborted; summarize progress and what remains."
+                )
+                return result
             answer = self.ui.ask_user(
                 AskUserInput(
                     question=(
@@ -359,6 +454,13 @@ class AgentSession:
                     allow_multiple=False,
                 )
             )
+            answer_text = str(answer.get("answer", "")).lower()
+            if answer_text.startswith("abort"):
+                # Enforce the decision in code — don't rely on the model.
+                self.abort_requested = True
+            elif answer_text.startswith("skip") and self.plan is not None:
+                self.plan.set_status(self._current_step(), "blocked")
+                self.ui.plan_update(self.plan)
             result["escalation"] = (
                 f"Repeated failures. The user was asked and answered: "
                 f"{json.dumps(answer, ensure_ascii=False)}. Follow this decision."
@@ -410,7 +512,9 @@ class AgentSession:
                 confidence=1.0,
             )
 
-        before = renderer.previous
+        # Diff against the last VERIFIED baseline, not merely the previous
+        # render — ad hoc render_preview calls must not shrink the diff.
+        before = renderer.baseline
         extra_note = ""
         if before is not None:
             diffs = diff_pages(before, after)
@@ -457,6 +561,7 @@ class AgentSession:
         if verdict.passed:
             self.visual_dirty[doc_id] = set()
             self.pending_ops[doc_id] = []
+            renderer.baseline = after
         return verdict
 
     def _end_turn_safety_net(self) -> Optional[str]:
@@ -483,18 +588,42 @@ class AgentSession:
 
     # -------------------------------------------------------------- save gate
 
-    def _overwrite_gate(self, tool_input: Dict[str, Any]):
-        if self.config.auto_approve_overwrite:
+    def _save_gate(self, tool_input: Dict[str, Any]):
+        """Gate BEFORE dispatch for any save whose target is an existing file
+        this session hasn't already written. Returns None to allow dispatch."""
+        from pathlib import Path
+
+        doc_id = tool_input.get("doc_id", "")
+        session = self.ctx.sessions.sessions.get(doc_id)
+        if session is None:
+            return None  # dispatch will produce the unknown-doc error
+        raw = tool_input.get("path")
+        target = (
+            Path(raw).expanduser().resolve() if raw else session.default_output_path()
+        )
+        is_original = target == session.original_path
+        if not target.exists() or str(target) in session.written_paths:
+            return None  # new file, or one we wrote earlier this session
+        if not tool_input.get("overwrite"):
+            return None  # session.save_to will refuse with an actionable error
+
+        # --yes only pre-approves overwriting the document's own original file,
+        # never arbitrary other existing files.
+        if is_original and self.config.auto_approve_overwrite:
             return None
+        what = (
+            f"原文件 {target}" if is_original else f"已存在的其他文件 {target}"
+        )
         if self.config.non_interactive:
             return (
                 json.dumps(
                     {
                         "success": False,
                         "error": (
-                            "Overwriting the original file requires --yes in "
-                            "non-interactive mode. Save to a new path instead "
-                            "(omit 'path' to write <name>.edited.<ext>)."
+                            f"Overwriting {target} requires "
+                            + ("--yes" if is_original else "interactive user approval")
+                            + " in non-interactive mode. Save to a new path "
+                            "instead (omit 'path' to write <name>.edited.<ext>)."
                         ),
                     }
                 ),
@@ -502,20 +631,17 @@ class AgentSession:
             )
         answer = self.ui.ask_user(
             AskUserInput(
-                question=(
-                    "The agent wants to OVERWRITE the original file "
-                    f"({tool_input.get('path') or 'original path'}). Allow?"
-                ),
+                question=f"Agent 想要覆盖{what}，允许吗？",
                 kind="multiple_choice",
                 options=[
                     {
-                        "label": "Save as a new copy instead",
-                        "description": "Writes <name>.edited.<ext>, original untouched",
+                        "label": "另存为新文件",
+                        "description": "写入 <name>.edited.<ext>，目标文件不动",
                         "is_default_safe": True,
                     },
                     {
-                        "label": "Yes, overwrite the original",
-                        "description": "Replaces the original file (snapshots still allow undo this session)",
+                        "label": "Yes, overwrite",
+                        "description": f"覆盖 {target}（本会话快照仍可回退内容）",
                         "is_default_safe": False,
                     },
                 ],
@@ -523,7 +649,8 @@ class AgentSession:
             )
         )
         if str(answer.get("answer", "")).lower().startswith("yes"):
-            return None  # proceed with overwrite
+            session.written_paths.add(str(target))  # approved once this session
+            return None
         return (
             json.dumps(
                 {

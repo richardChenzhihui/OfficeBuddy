@@ -86,7 +86,8 @@ class WordInsertElementInput(BaseModel):
     position: Optional[int] = Field(
         None,
         description=(
-            "Paragraph index to insert before/at. Omit to append at document end."
+            "Paragraph index to insert BEFORE (applies to both paragraphs and "
+            "tables). Omit to append at document end."
         ),
     )
 

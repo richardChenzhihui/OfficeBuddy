@@ -14,6 +14,7 @@ class PlanStep:
 @dataclass
 class Plan:
     steps: List[PlanStep] = field(default_factory=list)
+    active_index: Optional[int] = None  # most recently activated step
 
     @classmethod
     def from_descriptions(cls, descriptions: List[str]) -> "Plan":
@@ -27,9 +28,20 @@ class Plan:
         if status not in STATUSES:
             raise ValueError(f"Invalid status '{status}': expected one of {STATUSES}.")
         self.steps[index].status = status
+        if status == "in_progress":
+            self.active_index = index
 
     @property
     def current_index(self) -> int:
+        # Prefer the most recently activated step: a step stuck 'in_progress'
+        # after a failed verification must not hijack budget attribution for
+        # work the model is doing on a later step.
+        if (
+            self.active_index is not None
+            and 0 <= self.active_index < len(self.steps)
+            and self.steps[self.active_index].status == "in_progress"
+        ):
+            return self.active_index
         for i, step in enumerate(self.steps):
             if step.status == "in_progress":
                 return i

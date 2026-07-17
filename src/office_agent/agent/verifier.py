@@ -36,9 +36,12 @@ class VerificationResult:
 
     @property
     def blocking(self) -> bool:
-        if self.passed or self.skipped:
+        if self.skipped:
             return False
-        return any(p.get("severity") == "blocking" for p in self.problems) or not self.problems
+        # Any explicit fail requires repair — otherwise a passed=False verdict
+        # with only minor problems would mark the step done while leaving
+        # dirty-state bookkeeping (and the diff baseline) stale.
+        return not self.passed
 
 
 def _image_block(png_bytes: bytes) -> Dict[str, Any]:

@@ -364,3 +364,145 @@ def test_delete_chart_bad_index_is_actionable():
     ExcelAdapter.create_chart(ws, "A1:B1", "bar")
     with pytest.raises(ValueError, match="out of range"):
         ExcelAdapter.delete_chart(ws, 5)
+
+
+# --- delta-review round 2 fixes ----------------------------------------------
+
+def test_switch_signature_scoped_not_step_global():
+    """A harness-breach switch must not escalate an unrelated first failure."""
+    from office_agent.agent.budget import Action
+
+    tracker = BudgetTracker(Budgets())
+    assert tracker.record_failure(0, "harness:step_toolcap") == Action.RETRY
+    assert tracker.record_failure(0, "harness:step_toolcap") == Action.SWITCH_STRATEGY
+    # First-ever verify failure of a DIFFERENT kind: plain retry, not ask_user.
+    assert tracker.record_failure(0, "verify:verify_style") == Action.RETRY
+    # But the switched signature failing again does escalate.
+    assert tracker.record_failure(0, "harness:step_toolcap") == Action.ASK_USER
+
+
+def test_refresh_ladder_preserves_user_asks():
+    tracker = BudgetTracker(Budgets())
+    step = tracker.step(0)
+    tracker.record_failure(0, "sig")
+    tracker.record_failure(0, "sig")
+    step.user_asks = 1
+    step.refresh_ladder()
+    assert step.attempts == 0 and step.signatures == [] and not step.strategy_switched
+    assert step.user_asks == 1  # ask cap survives the refresh
+
+
+def test_verifier_explicit_fail_is_always_blocking():
+    from office_agent.agent.verifier import VerificationResult
+
+    v = VerificationResult(
+        passed=False,
+        problems=[{"page": 0, "element_hint": "x", "description": "d", "severity": "minor"}],
+        confidence=0.7,
+    )
+    assert v.blocking is True
+    assert VerificationResult(passed=True, confidence=0.9).blocking is False
+    assert VerificationResult(passed=True, skipped=True).blocking is False
+
+
+def test_delete_single_cell_refused():
+    doc = Document()
+    t = doc.add_table(rows=2, cols=2)
+    cell = t.rows[0].cells[0]
+    with pytest.raises(ValueError, match="rectangular structure"):
+        WordAdapter.delete_elements([cell])
+    assert len(t.rows[0].cells) == 2  # table intact
+
+
+def test_linked_header_edit_refused_with_owner_hint():
+    from docx.enum.section import WD_SECTION
+
+    from office_agent.core.selector_parser import SelectorError, SelectorParser
+
+    doc = Document()
+    doc.sections[0].header.paragraphs[0].text = "owner header"
+    doc.add_section(WD_SECTION.NEW_PAGE)
+    assert doc.sections[1].header.is_linked_to_previous
+    with pytest.raises(SelectorError, match="LINKED.*section 0"):
+        SelectorParser.parse_word_selector(
+            {"type": "header", "section_index": 1}, doc
+        )
+    # Section 0 (the owner) still addressable.
+    paras = SelectorParser.parse_word_selector({"type": "header"}, doc)
+    assert paras and paras[0].text == "owner header"
+
+
+def test_new_turn_resets_step_budgets(word_doc_path):
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from fake_llm import FakeLLM, FakeMessage, text_block
+
+    from office_agent.agent.loop import AgentSession
+    from office_agent.config import Config
+
+    llm = FakeLLM(script=[
+        FakeMessage(content=[text_block("turn1 done")]),
+        FakeMessage(content=[text_block("turn2 done")]),
+    ])
+    session = AgentSession(Config(api_key="fake", visual_verify=False), llm=llm)
+    session.run_turn("first")
+    # Simulate turn 1 having consumed step budget / aged clock / abort flag.
+    session.budget.step(0).tool_calls = 99
+    session.budget.end_turn_repairs = 99
+    session.step_started_at[0] = 1.0  # ancient
+    session.abort_requested = True
+    session.run_turn("second")
+    assert session.budget.step(0).tool_calls == 0
+    assert session.budget.end_turn_repairs == 0
+    assert session.step_started_at == {}
+    assert session.abort_requested is False
+
+
+def test_abort_mid_batch_refuses_queued_tools(word_doc_path):
+    """Once abort is set inside a multi-tool batch, queued calls are refused."""
+    import json as _json
+    import sys
+    import unittest.mock
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from fake_llm import FakeLLM, FakeMessage, text_block, tool_use
+
+    from office_agent.agent.loop import AgentSession
+    from office_agent.config import Config
+
+    llm = FakeLLM(script=[
+        FakeMessage(
+            content=[
+                tool_use("open_document", {"file_path": str(word_doc_path)}),
+                tool_use("get_structure", {"doc_id": "whatever"}),
+            ],
+            stop_reason="tool_use",
+        ),
+        FakeMessage(content=[text_block("stopped")]),
+    ])
+    session = AgentSession(Config(api_key="fake", visual_verify=False), llm=llm)
+
+    original = AgentSession._handle_tool
+
+    def aborting_handle(self, name, tool_input):
+        content, is_error = original(self, name, tool_input)
+        self.abort_requested = True  # decision lands during the first call
+        return content, is_error
+
+    with unittest.mock.patch.object(AgentSession, "_handle_tool", aborting_handle):
+        result = session.run_turn("do two things")
+    assert result.aborted is True
+    # After abort no further LLM call happens; the refusal lives in history.
+    flat = _json.dumps(session.history.messages, ensure_ascii=False, default=str)
+    assert "was not executed" in flat  # second tool refused, pairing intact
+    tool_results = [
+        b
+        for m in session.history.messages
+        if m["role"] == "user" and isinstance(m["content"], list)
+        for b in m["content"]
+        if isinstance(b, dict) and b.get("type") == "tool_result"
+    ]
+    assert len(tool_results) == 2  # every tool_use got its tool_result

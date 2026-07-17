@@ -110,6 +110,26 @@ class SelectorParser:
                 )
             section = sections[selector.section_index]
             part = section.header if selector.type == "header" else section.footer
+            if selector.section_index > 0 and part.is_linked_to_previous:
+                # Editing a linked part would silently mutate the OWNING
+                # section's header/footer on earlier pages too.
+                owner = selector.section_index
+                while owner > 0:
+                    owner_part = (
+                        sections[owner].header
+                        if selector.type == "header"
+                        else sections[owner].footer
+                    )
+                    if not owner_part.is_linked_to_previous:
+                        break
+                    owner -= 1
+                raise SelectorError(
+                    f"Section {selector.section_index}'s {selector.type} is "
+                    f"LINKED: it inherits section {owner}'s definition, so "
+                    "editing it here would also change those earlier pages. "
+                    f"Target section_index={owner} explicitly if that is "
+                    "intended."
+                )
             return list(part.paragraphs)
 
         if selector.type == "text_match":

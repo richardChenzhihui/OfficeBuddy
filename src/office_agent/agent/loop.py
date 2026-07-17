@@ -112,6 +112,13 @@ class AgentSession:
         self.history.add_user_text(text)
         self.saved_paths = []
         final_text = ""
+        # A new user turn is new work: fresh per-step budgets, clocks, and
+        # end-turn repair allowance. Session-lifetime state (visual_dirty,
+        # snapshots, open docs, history) intentionally persists.
+        self.budget.reset_steps()
+        self.budget.reset_end_turn_repairs()
+        self.step_started_at.clear()
+        self.abort_requested = False
 
         while True:
             response = self.llm.create(
@@ -152,7 +159,24 @@ class AgentSession:
 
             results = []
             for tu in tool_uses:
-                content, is_error = self._handle_tool(tu.name, dict(tu.input))
+                if self.abort_requested:
+                    # The user's abort decision takes effect IMMEDIATELY:
+                    # queued tool calls in the same batch are refused (each
+                    # still gets its tool_result to keep pairing intact).
+                    content, is_error = (
+                        json.dumps(
+                            {
+                                "success": False,
+                                "error": (
+                                    "Task aborted by the user — this queued "
+                                    "call was not executed."
+                                ),
+                            }
+                        ),
+                        True,
+                    )
+                else:
+                    content, is_error = self._handle_tool(tu.name, dict(tu.input))
                 results.append(
                     {"tool_use_id": tu.id, "content": content, "is_error": is_error}
                 )
@@ -501,9 +525,9 @@ class AgentSession:
                 self.plan.set_status(self._current_step(), "blocked")
                 self.ui.plan_update(self.plan)
             elif answer_text.startswith("try"):
-                # User authorized another attempt: refresh this step's
-                # tool-call allowance and clock.
-                step_budget.tool_calls = 0
+                # User authorized another attempt: fresh run through the whole
+                # ladder (retry -> switch -> ask), not just more headroom.
+                step_budget.refresh_ladder()
                 self.step_started_at[self._current_step()] = time.time()
             result["escalation"] = (
                 f"Repeated failures. The user was asked and answered: "

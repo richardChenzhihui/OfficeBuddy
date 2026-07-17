@@ -46,7 +46,17 @@ class StepBudget:
     tool_calls: int = 0
     signatures: List[str] = field(default_factory=list)
     strategy_switched: bool = False
+    switched_signature: str = ""  # which signature triggered the switch
     user_asks: int = 0
+
+    def refresh_ladder(self) -> None:
+        """User authorized another attempt: fresh run through the ladder.
+        user_asks is intentionally preserved (the ask cap still applies)."""
+        self.attempts = 0
+        self.tool_calls = 0
+        self.signatures = []
+        self.strategy_switched = False
+        self.switched_signature = ""
 
 
 @dataclass
@@ -73,6 +83,10 @@ class BudgetTracker:
     def record_end_turn_repair(self) -> None:
         self.end_turn_repairs += 1
 
+    def reset_end_turn_repairs(self) -> None:
+        """New user turn: fresh repair budget for the end-turn safety net."""
+        self.end_turn_repairs = 0
+
     def end_turn_exhausted(self) -> bool:
         """Hard cap on the end-turn verify->repair cycle, independent of tool
         calls, so a model that stops calling tools cannot loop forever."""
@@ -89,8 +103,11 @@ class BudgetTracker:
 
         if budget.attempts >= self.limits.max_attempts_per_step:
             return Action.ASK_USER
-        if budget.strategy_switched:
-            # Strategy switch already tried and it still failed.
+        if budget.strategy_switched and signature == budget.switched_signature:
+            # The strategy switch for THIS kind of failure was already tried
+            # and it still failed the same way. A different, first-occurrence
+            # signature gets its own run through the ladder instead of
+            # inheriting an unrelated switch's escalation.
             return Action.ASK_USER
         recent = budget.signatures[-self.limits.same_error_strategy_switch :]
         if (
@@ -98,5 +115,6 @@ class BudgetTracker:
             and len(set(recent)) == 1
         ):
             budget.strategy_switched = True
+            budget.switched_signature = signature
             return Action.SWITCH_STRATEGY
         return Action.RETRY

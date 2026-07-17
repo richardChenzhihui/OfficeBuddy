@@ -275,6 +275,13 @@ class WordAdapter:
         """Remove paragraphs/tables/rows from the document tree entirely."""
         removed: List[str] = []
         for element in elements:
+            if hasattr(element, "_tc"):  # single table cell
+                raise ValueError(
+                    "Deleting a single table CELL would corrupt the table's "
+                    "rectangular structure. Delete the whole row or table "
+                    "instead, or clear the cell's text with word_edit_text "
+                    "(operation='delete')."
+                )
             xml_el = getattr(element, "_element", None)
             if xml_el is None or xml_el.getparent() is None:
                 raise ValueError(

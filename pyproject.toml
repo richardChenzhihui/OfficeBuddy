@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "office-agent"
+version = "0.2.0"
+description = "LLM agent that edits Word/Excel documents with rendered-screenshot verification on macOS"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40",
+    "pydantic>=2.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+    "PyMuPDF>=1.24",
+    "typer>=0.12",
+    "rich>=13.0",
+    "questionary>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov"]
+
+[project.scripts]
+office-agent = "office_agent.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "mac_office: requires local Microsoft Word/Excel (deselect with '-m \"not mac_office\"')",
+    "live: requires MINIMAX_API_KEY and OFFICE_AGENT_LIVE_TEST=1",
+]

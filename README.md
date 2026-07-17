@@ -89,7 +89,11 @@ OFFICE_AGENT_LIVE_TEST=1 pytest -m live -q   # 真实 MiniMax 冒烟（花钱，
 
 ## 已知限制
 
+- **打开本来就带图表/图片的 .xlsx 再保存会丢失这些图表/图片**（openpyxl 读取器
+  不解析它们）。打开时会显式警告并提示不要覆盖原文件；纯数据/样式编辑不受影响。
 - Excel 图表由 openpyxl 生成：数据区首列默认作为类别轴标签，其余样式较朴素。
+- Word 表格/单元格边框已支持（`style_params.border`）；修订、批注、脚注、TOC 域
+  更新等 Word 高级特性暂不支持（计划通过 Word 内部自动化逃生舱补充）。
 - Word 渲染首次冷启动可能需要 1-2 分钟（Word 本体启动）；会话内温启动约 0.6 秒。
   会话结束后 Word/Excel 保持运行以保留温启动（`doctor` 只退出它自己启动的实例）。
 - 段落级 find_replace 仅在匹配跨越格式边界时展平该段 run 格式（结果中带 warning）。

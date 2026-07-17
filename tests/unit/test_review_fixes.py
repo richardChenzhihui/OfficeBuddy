@@ -629,3 +629,41 @@ def test_insert_table_bad_content_error_shows_example_and_got():
     doc = Document()
     with pytest.raises(ValueError, match=r"e\.g\..*Got: int"):
         WordAdapter.insert_element(doc, None, "table", 42)
+
+
+# --- pre-existing chart/image loss disclosure (openpyxl reader limitation) ---
+
+def test_open_xlsx_with_charts_warns(tmp_path):
+    from openpyxl import Workbook
+
+    from office_agent.adapters.excel_adapter import ExcelAdapter as _EA
+    from office_agent.tools import REGISTRY, ToolContext
+
+    src = tmp_path / "charted.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    for row in [["a", 1], ["b", 2]]:
+        ws.append(row)
+    _EA.create_chart(ws, "A1:B2", "bar")
+    wb.save(str(src))
+
+    ctx = ToolContext()
+    try:
+        result = REGISTRY.dispatch(ctx, "open_document", {"file_path": str(src)})
+        assert result["success"], result
+        assert "warnings" in result, "chart-loss warning missing"
+        assert "LOST" in result["warnings"][0]
+    finally:
+        ctx.sessions.close_all()
+
+
+def test_open_plain_xlsx_has_no_warnings(excel_doc_path):
+    from office_agent.tools import REGISTRY, ToolContext
+
+    ctx = ToolContext()
+    try:
+        result = REGISTRY.dispatch(ctx, "open_document", {"file_path": str(excel_doc_path)})
+        assert result["success"]
+        assert "warnings" not in result
+    finally:
+        ctx.sessions.close_all()

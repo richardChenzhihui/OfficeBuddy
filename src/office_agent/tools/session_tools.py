@@ -130,12 +130,15 @@ def open_document(ctx: ToolContext, p: OpenDocumentInput) -> dict:
         }
     else:
         summary = {"sheets": session.doc.sheetnames}
-    return {
+    result = {
         "doc_id": session.doc_id,
         "doc_type": session.doc_type,
         "original_path": str(session.original_path),
         "summary": summary,
     }
+    if session.preservation_warnings:
+        result["warnings"] = session.preservation_warnings
+    return result
 
 
 @REGISTRY.register(

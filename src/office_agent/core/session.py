@@ -64,10 +64,40 @@ class EditSession:
             os.chmod(root, 0o700)
         self.working_path = self.session_dir / f"working{ext}"
         shutil.copy2(original, self.working_path)
+        self.preservation_warnings = self._detect_lossy_parts()
         self.doc: Any = self._load()
         self.audit_path = self.session_dir / "audit.jsonl"
         self.dirty = False  # in-memory object differs from working_path on disk
         self.written_paths: set = set()  # files this session has saved to
+
+    def _detect_lossy_parts(self) -> list:
+        """openpyxl's reader drops charts/images from pre-existing workbooks.
+        Detect them up front so the data loss is disclosed, never silent."""
+        if self.doc_type != "excel":
+            return []
+        import zipfile
+
+        warnings = []
+        try:
+            names = zipfile.ZipFile(self.working_path).namelist()
+        except Exception:
+            return []
+        n_charts = sum(1 for n in names if n.startswith("xl/charts/chart"))
+        n_media = sum(1 for n in names if n.startswith("xl/media/"))
+        if n_charts:
+            warnings.append(
+                f"⚠️ This workbook contains {n_charts} pre-existing chart(s) "
+                "that the current editing engine CANNOT preserve — they will "
+                "be LOST in any saved output. Inform the user before saving; "
+                "do not overwrite the original."
+            )
+        if n_media:
+            warnings.append(
+                f"⚠️ This workbook contains {n_media} embedded image(s) that "
+                "will be LOST in any saved output. Inform the user before "
+                "saving."
+            )
+        return warnings
 
     def _load(self) -> Any:
         if self.doc_type == "word":

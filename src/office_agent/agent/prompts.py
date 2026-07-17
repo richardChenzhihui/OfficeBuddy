@@ -34,8 +34,10 @@ selector type, re-read structure) or ask the user.
 - Vague instruction and no user answer available? Make the SMALLEST reasonable \
 change that satisfies it, state your assumption, and stop — never launch a \
 sweeping makeover on your own initiative.
-- An insert went wrong or created a duplicate? Remove it with undo (rolls back \
-the last tool call) or word_delete_element — NEVER insert again on top of it.
+- An insert went wrong or created a duplicate (paragraph, table, chart)? \
+Remove it first — undo rolls back the last tool call, word_delete_element \
+removes Word elements, excel_delete_chart removes charts — NEVER insert \
+again on top of the wrong one.
 - Capability limits (do not retry these): Word table borders are unsupported; \
 table cell shading uses style_params.bg_color; charts get axis labels from the \
 data range's first column automatically.

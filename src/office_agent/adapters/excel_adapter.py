@@ -216,6 +216,24 @@ class ExcelAdapter:
         }
 
     @staticmethod
+    def delete_chart(worksheet: Any, chart_index: Optional[int] = None) -> Dict[str, Any]:
+        """Delete one chart by index, or all charts when chart_index is None."""
+        charts = getattr(worksheet, "_charts", [])
+        if not charts:
+            raise ValueError("This sheet has no charts to delete.")
+        if chart_index is None:
+            removed = len(charts)
+            worksheet._charts = []
+            return {"affected": [f"removed all {removed} chart(s)"]}
+        if not 0 <= chart_index < len(charts):
+            raise ValueError(
+                f"chart_index {chart_index} out of range: sheet has "
+                f"{len(charts)} chart(s) (0..{len(charts)-1})."
+            )
+        del worksheet._charts[chart_index]
+        return {"affected": [f"removed chart {chart_index}"]}
+
+    @staticmethod
     def conditional_select(worksheet: Any, condition: Dict[str, Any]) -> List[str]:
         known_keys = {"contains", "value_gt", "has_formula"}
         unknown = set(condition) - known_keys

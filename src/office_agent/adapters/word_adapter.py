@@ -230,6 +230,10 @@ class WordAdapter:
                 )
             cols = len(content[0]) if content else 0
             table = doc.add_table(rows=len(content), cols=cols)
+            try:
+                table.style = "Table Grid"  # visible borders by default
+            except KeyError:
+                pass  # style absent from this document's template
             for i, row_data in enumerate(content):
                 for j, cell_data in enumerate(row_data):
                     table.rows[i].cells[j].text = str(cell_data)

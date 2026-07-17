@@ -91,6 +91,18 @@ class ExcelChartInput(BaseModel):
     )
 
 
+class ExcelDeleteChartInput(BaseModel):
+    doc_id: str = Field(..., description="Document id")
+    sheet: str = Field(..., description="Sheet name")
+    chart_index: Optional[int] = Field(
+        None,
+        description=(
+            "0-based chart index to delete (get_structure shows the chart "
+            "count). Omit to delete ALL charts on the sheet."
+        ),
+    )
+
+
 class ExcelConditionalSelectInput(BaseModel):
     doc_id: str = Field(..., description="Document id")
     sheet: str = Field(..., description="Sheet name")
@@ -175,6 +187,19 @@ def excel_create_chart(ctx: ToolContext, p: ExcelChartInput) -> dict:
     session = _excel_session(ctx, p.doc_id)
     ws, _ = _sheet_and_coords(session, p.sheet, None)
     return ExcelAdapter.create_chart(ws, p.data_range, p.chart_type, p.chart_options)
+
+
+@REGISTRY.register(
+    "excel_delete_chart",
+    "Delete a chart (or all charts) from a sheet. Use this (or undo) to remove "
+    "a duplicated or wrong chart — never create another one on top of it.",
+    ExcelDeleteChartInput,
+    mutates=True,
+)
+def excel_delete_chart(ctx: ToolContext, p: ExcelDeleteChartInput) -> dict:
+    session = _excel_session(ctx, p.doc_id)
+    ws, _ = _sheet_and_coords(session, p.sheet, None)
+    return ExcelAdapter.delete_chart(ws, p.chart_index)
 
 
 @REGISTRY.register(

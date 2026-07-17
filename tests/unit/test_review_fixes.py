@@ -325,3 +325,42 @@ def test_delete_via_tool_dispatch(word_doc_path):
         assert any("DELETE_TARGET_XYZ" in p.text for p in ctx.sessions.get(doc_id).doc.paragraphs)
     finally:
         ctx.sessions.close_all()
+
+
+# --- excel_delete_chart (duplicate-chart gap found by Excel battery) ---------
+
+def test_delete_chart_by_index():
+    wb = Workbook()
+    ws = wb.active
+    for row in [["a", 1], ["b", 2]]:
+        ws.append(row)
+    ExcelAdapter.create_chart(ws, "A1:B2", "bar")
+    ExcelAdapter.create_chart(ws, "A1:B2", "line")
+    assert len(ws._charts) == 2
+    result = ExcelAdapter.delete_chart(ws, 0)
+    assert len(ws._charts) == 1
+    assert "removed chart 0" in result["affected"][0]
+
+
+def test_delete_all_charts():
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["a", 1])
+    ExcelAdapter.create_chart(ws, "A1:B1", "bar")
+    ExcelAdapter.delete_chart(ws, None)
+    assert len(ws._charts) == 0
+
+
+def test_delete_chart_no_charts_is_actionable():
+    wb = Workbook()
+    with pytest.raises(ValueError, match="no charts"):
+        ExcelAdapter.delete_chart(wb.active, None)
+
+
+def test_delete_chart_bad_index_is_actionable():
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["a", 1])
+    ExcelAdapter.create_chart(ws, "A1:B1", "bar")
+    with pytest.raises(ValueError, match="out of range"):
+        ExcelAdapter.delete_chart(ws, 5)

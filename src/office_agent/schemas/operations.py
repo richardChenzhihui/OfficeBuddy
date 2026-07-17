@@ -35,7 +35,15 @@ class StyleParams(BaseModel):
     number_format: Optional[str] = Field(
         None, description="Excel number format, e.g. '#,##0', '0.00%'"
     )
-    border: Optional[Dict[str, Any]] = Field(None, description="Excel border settings")
+    border: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Border settings. Word (on table/row/cell targets): "
+            "{'style':'single|double|dashed|dotted|thick|none','size':0.5 (pt),"
+            "'color':'#000000','sides':['top','bottom','left','right',"
+            "'insideH','insideV']} — sides omitted = all."
+        ),
+    )
     # Word specific
     paragraph_spacing: Optional[float] = Field(
         None, description="Space before paragraph in points (Word)"

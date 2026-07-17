@@ -65,9 +65,12 @@ def main(
     model: str = typer.Option("MiniMax-M3", "--model", help="模型 id"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="显示工具调用详情"),
 ):
-    # Single-command app: 'doctor' is routed via the instruction argument.
+    # Single-command app: 'doctor' / 'gc' are routed via the instruction arg.
     if instruction == "doctor" and file is None:
         doctor()
+        return
+    if instruction == "gc" and file is None:
+        gc()
         return
     config = Config(
         model=model,
@@ -90,6 +93,33 @@ def main(
         session.ctx.sessions.close_all()
         return
     _repl(session, instruction, file_str)
+
+
+def gc(older_than_hours: float = 24.0):
+    """清理陈旧的会话工作目录（容器内与 fallback 目录）。"""
+    import shutil as _shutil
+    import time as _time
+
+    from .core.session import EXCEL_CONTAINER, FALLBACK_ROOT, WORD_CONTAINER
+
+    roots = [WORD_CONTAINER / "office_agent", EXCEL_CONTAINER / "office_agent", FALLBACK_ROOT]
+    cutoff = _time.time() - older_than_hours * 3600
+    removed = kept = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        for session_dir in root.iterdir():
+            if not session_dir.is_dir():
+                continue
+            if session_dir.stat().st_mtime < cutoff:
+                _shutil.rmtree(session_dir, ignore_errors=True)
+                removed += 1
+            else:
+                kept += 1
+    console.print(
+        f"🧹 已清理 {removed} 个超过 {older_than_hours:g} 小时的会话目录"
+        + (f"，保留 {kept} 个较新的" if kept else "")
+    )
 
 
 def doctor():

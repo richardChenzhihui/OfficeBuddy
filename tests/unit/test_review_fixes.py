@@ -259,11 +259,15 @@ def test_apply_style_on_whole_table():
     assert t.rows[1].cells[1].paragraphs[0].runs[0].italic is True
 
 
-def test_apply_style_word_border_raises_actionable():
+def test_apply_style_word_border_now_supported():
+    """Borders were once unsupported; now they apply as tblBorders."""
+    from docx.oxml.ns import qn
+
     doc = Document()
     t = doc.add_table(rows=1, cols=1)
-    with pytest.raises(ValueError, match="not supported yet"):
-        WordAdapter.apply_style([t], StyleParams(border={"style": "single"}))
+    result = WordAdapter.apply_style([t], StyleParams(border={"style": "single"}))
+    assert "table styled" in result["affected"][0]
+    assert t._tbl.tblPr.find(qn("w:tblBorders")) is not None
 
 
 def test_apply_style_unsupported_target_raises_not_silent():
@@ -506,3 +510,122 @@ def test_abort_mid_batch_refuses_queued_tools(word_doc_path):
         if isinstance(b, dict) and b.get("type") == "tool_result"
     ]
     assert len(tool_results) == 2  # every tool_use got its tool_result
+
+
+# --- Word borders (tcBorders/tblBorders, formerly unsupported) ---------------
+
+def test_table_borders_applied():
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    t = doc.add_table(rows=2, cols=2)
+    WordAdapter.apply_style(
+        [t], StyleParams(border={"style": "double", "size": 1.0, "color": "#FF0000"})
+    )
+    borders = t._tbl.tblPr.find(qn("w:tblBorders"))
+    assert borders is not None
+    top = borders.find(qn("w:top"))
+    assert top.get(qn("w:val")) == "double"
+    assert top.get(qn("w:sz")) == "8"  # 1.0pt * 8
+    assert top.get(qn("w:color")) == "FF0000"
+    assert borders.find(qn("w:insideH")) is not None  # all sides by default
+
+
+def test_cell_borders_specific_sides():
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    cell = t.rows[0].cells[0]
+    WordAdapter.apply_style(
+        [cell], StyleParams(border={"style": "single", "sides": ["bottom"]})
+    )
+    borders = cell._tc.get_or_add_tcPr().find(qn("w:tcBorders"))
+    assert borders.find(qn("w:bottom")) is not None
+    assert borders.find(qn("w:top")) is None  # only the requested side
+
+
+def test_border_on_paragraph_target_is_actionable():
+    doc = Document()
+    p = doc.add_paragraph("text")
+    with pytest.raises(ValueError, match="tables, table rows, or cells"):
+        WordAdapter.apply_style([p], StyleParams(border={"style": "single"}))
+
+
+def test_border_invalid_style_rejected_before_mutation():
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    with pytest.raises(ValueError, match="Invalid border style"):
+        WordAdapter.apply_style([t], StyleParams(border={"style": "wavy"}))
+
+
+def test_cell_border_rejects_inside_sides():
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    with pytest.raises(ValueError, match="table-level only"):
+        WordAdapter.apply_style(
+            [t.rows[0].cells[0]],
+            StyleParams(border={"style": "single", "sides": ["insideH"]}),
+        )
+
+
+def test_border_roundtrips_through_save(tmp_path):
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    t.rows[0].cells[0].text = "x"
+    WordAdapter.apply_style([t], StyleParams(border={"style": "thick", "size": 2}))
+    p = tmp_path / "b.docx"
+    doc.save(str(p))
+    from docx.oxml.ns import qn
+
+    reloaded = Document(str(p))
+    assert reloaded.tables[0]._tbl.tblPr.find(qn("w:tblBorders")) is not None
+
+
+# --- gc command --------------------------------------------------------------
+
+def test_gc_removes_only_stale_dirs(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from office_agent import cli
+    from office_agent.core import session as session_mod
+
+    fake_root = tmp_path / "fallback"
+    old_dir = fake_root / "old_session"
+    new_dir = fake_root / "new_session"
+    old_dir.mkdir(parents=True)
+    new_dir.mkdir(parents=True)
+    stale = time.time() - 48 * 3600
+    os.utime(old_dir, (stale, stale))
+    monkeypatch.setattr(cli, "console", cli.console)
+    monkeypatch.setattr(session_mod, "FALLBACK_ROOT", fake_root)
+    monkeypatch.setattr(session_mod, "WORD_CONTAINER", tmp_path / "nope1")
+    monkeypatch.setattr(session_mod, "EXCEL_CONTAINER", tmp_path / "nope2")
+    cli.gc(older_than_hours=24)
+    assert not old_dir.exists()
+    assert new_dir.exists()
+
+
+# --- table content lenient parsing (flaky insert_table root cause) -----------
+
+def test_insert_table_accepts_json_string_content():
+    doc = Document()
+    WordAdapter.insert_element(
+        doc, None, "table", '[["Name","Score"],["Alice","90"]]'
+    )
+    t = doc.tables[-1]
+    assert t.rows[0].cells[0].text == "Name"
+    assert t.rows[1].cells[1].text == "90"
+
+
+def test_insert_table_wraps_flat_list_as_one_row():
+    doc = Document()
+    result = WordAdapter.insert_element(doc, None, "table", ["a", "b", "c"])
+    assert result["rows"] == 1 and result["cols"] == 3
+
+
+def test_insert_table_bad_content_error_shows_example_and_got():
+    doc = Document()
+    with pytest.raises(ValueError, match=r"e\.g\..*Got: int"):
+        WordAdapter.insert_element(doc, None, "table", 42)

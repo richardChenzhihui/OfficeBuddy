@@ -26,6 +26,52 @@ def _copy_run_format(src: Any, dst: Any) -> None:
         dst.font.color.rgb = src.font.color.rgb
 
 
+_BORDER_STYLES = {"single", "double", "dashed", "dotted", "thick", "none"}
+_BORDER_SIDES = {"top", "left", "bottom", "right", "insideH", "insideV"}
+
+
+def _validate_border(border: dict) -> dict:
+    """Normalize a border spec: {'style','size'(pt),'color','sides'}."""
+    if not isinstance(border, dict):
+        raise ValueError(
+            "border must be a dict like {'style':'single','size':0.5,"
+            "'color':'#000000','sides':['top','bottom']}."
+        )
+    style = border.get("style", "single")
+    if style not in _BORDER_STYLES:
+        raise ValueError(
+            f"Invalid border style '{style}': expected one of {sorted(_BORDER_STYLES)}."
+        )
+    try:
+        size_pt = float(border.get("size", 0.5))
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid border size {border.get('size')!r}: expected points, e.g. 0.5.")
+    if not 0 < size_pt <= 12:
+        raise ValueError(f"Border size {size_pt}pt out of range (0..12].")
+    color = str(border.get("color", "#000000")).lstrip("#").upper()
+    sides = border.get("sides") or []
+    unknown = [s for s in sides if s not in _BORDER_SIDES]
+    if unknown:
+        raise ValueError(
+            f"Unknown border sides {unknown}: expected {sorted(_BORDER_SIDES)}."
+        )
+    return {"style": style, "sz": max(2, int(size_pt * 8)), "color": color, "sides": sides}
+
+
+def _make_borders_element(tag: str, border: dict, sides: list):
+    from docx.oxml.ns import qn
+    from docx.oxml.parser import OxmlElement
+
+    el = OxmlElement(tag)
+    for side in sides:
+        b = OxmlElement(f"w:{side}")
+        b.set(qn("w:val"), border["style"])
+        b.set(qn("w:sz"), str(border["sz"]))
+        b.set(qn("w:color"), border["color"])
+        el.append(b)
+    return el
+
+
 def _parse_color(value: str) -> RGBColor:
     raw = value[1:] if value.startswith("#") else value
     try:
@@ -120,24 +166,29 @@ class WordAdapter:
             )
         if style.color:
             _parse_color(style.color)
-        if style.border:
+        border_spec = _validate_border(style.border) if style.border else None
+        if border_spec and not any(
+            hasattr(e, "rows") or hasattr(e, "cells") or hasattr(e, "_tc")
+            for e in elements
+        ):
             raise ValueError(
-                "Word table borders are not supported yet — do not retry with "
-                "'border'. Supported here: font/size/bold/italic/underline/"
-                "color/alignment/spacing, plus bg_color for table cells."
+                "'border' applies only to tables, table rows, or cells — "
+                "select a table / row / cell target for border styling."
             )
         affected: List[str] = []
         for element in elements:
             if hasattr(element, "rows"):  # Table: style every cell
                 for row in element.rows:
                     for cell in row.cells:
-                        WordAdapter._apply_cell_style(cell, style)
+                        WordAdapter._apply_cell_style(cell, style, border=None)
+                if border_spec:
+                    WordAdapter._apply_table_borders(element, border_spec)
                 affected.append(
                     f"table styled ({len(element.rows)} rows x "
                     f"{len(element.columns)} cols)"
                 )
             elif hasattr(element, "paragraphs") and hasattr(element, "_tc"):  # Cell
-                WordAdapter._apply_cell_style(element, style)
+                WordAdapter._apply_cell_style(element, style, border=border_spec)
                 affected.append("cell styled")
             elif hasattr(element, "runs"):  # Paragraph
                 for run in element.runs:
@@ -149,7 +200,7 @@ class WordAdapter:
                 affected.append("run styled")
             elif hasattr(element, "cells"):  # Table row
                 for cell in element.cells:
-                    WordAdapter._apply_cell_style(cell, style)
+                    WordAdapter._apply_cell_style(cell, style, border=border_spec)
                 affected.append(f"row styled ({len(element.cells)} cells)")
         if not affected:
             raise ValueError(
@@ -159,13 +210,43 @@ class WordAdapter:
         return {"affected": affected}
 
     @staticmethod
-    def _apply_cell_style(cell: Any, style: StyleParams) -> None:
+    def _apply_cell_style(cell: Any, style: StyleParams, border=None) -> None:
         for para in cell.paragraphs:
             for run in para.runs:
                 WordAdapter._apply_run_style(run, style)
             WordAdapter._apply_paragraph_format(para, style)
         if style.bg_color:
             WordAdapter._shade_cell(cell, style.bg_color)
+        if border:
+            WordAdapter._apply_cell_borders(cell, border)
+
+    @staticmethod
+    def _apply_table_borders(table: Any, border: dict) -> None:
+        from docx.oxml.ns import qn
+
+        tbl_pr = table._tbl.tblPr
+        for old in tbl_pr.findall(qn("w:tblBorders")):
+            tbl_pr.remove(old)
+        sides = border["sides"] or [
+            "top", "left", "bottom", "right", "insideH", "insideV"
+        ]
+        tbl_pr.append(_make_borders_element("w:tblBorders", border, sides))
+
+    @staticmethod
+    def _apply_cell_borders(cell: Any, border: dict) -> None:
+        from docx.oxml.ns import qn
+
+        tc_pr = cell._tc.get_or_add_tcPr()
+        for old in tc_pr.findall(qn("w:tcBorders")):
+            tc_pr.remove(old)
+        sides = border["sides"] or ["top", "left", "bottom", "right"]
+        bad = [s for s in sides if s.startswith("inside")]
+        if bad:
+            raise ValueError(
+                f"Sides {bad} are table-level only; per-cell borders support "
+                "top/left/bottom/right."
+            )
+        tc_pr.append(_make_borders_element("w:tcBorders", border, sides))
 
     @staticmethod
     def _shade_cell(cell: Any, hex_color: str) -> None:
@@ -217,10 +298,38 @@ class WordAdapter:
         doc: Document, position: Optional[int], element_type: str, content: Any
     ) -> Dict[str, Any]:
         if element_type == "table":
+            # LLMs frequently serialize nested arrays as JSON strings — accept
+            # that gracefully instead of failing on a formality.
+            if isinstance(content, str):
+                import json as _json
+
+                try:
+                    parsed = _json.loads(content)
+                except (ValueError, TypeError):
+                    parsed = None
+                if isinstance(parsed, list):
+                    content = parsed
+            if isinstance(content, list) and content and not any(
+                isinstance(row, list) for row in content
+            ):
+                # A flat list is almost certainly one intended row.
+                content = [content]
             if not isinstance(content, list) or not all(
                 isinstance(row, list) for row in content
             ):
-                raise ValueError("Table content must be a list of row lists.")
+                got = (
+                    f"{type(content).__name__}"
+                    + (
+                        f" with first element {type(content[0]).__name__}"
+                        if isinstance(content, list) and content
+                        else ""
+                    )
+                )
+                raise ValueError(
+                    "Table content must be a 2D array of row lists, e.g. "
+                    "[['Name','Score'],['Alice','90']] — pass the actual JSON "
+                    f"array, not a string. Got: {got}."
+                )
             # Validate position BEFORE mutating: a failed call must leave no
             # orphaned table behind.
             if position is not None and not 0 <= position < len(doc.paragraphs):

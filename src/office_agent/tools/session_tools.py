@@ -115,6 +115,9 @@ def _excel_structure(session) -> dict:
                     "for the rest"
                 ),
                 "charts": len(getattr(ws, "_charts", [])),
+                # Frozen panes are invisible in a PDF render — this is the only
+                # way to confirm the setting took effect.
+                "freeze_panes": getattr(ws, "freeze_panes", None),
             }
         )
     return {"doc_type": "excel", "sheets": sheets}

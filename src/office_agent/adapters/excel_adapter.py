@@ -157,6 +157,141 @@ class ExcelAdapter:
         return {"affected": affected, "type": insert_type, "position": position, "count": count}
 
     @staticmethod
+    def freeze_panes(worksheet: Any, cell: Optional[str]) -> Dict[str, Any]:
+        """Freeze rows above / columns left of `cell` ('A2' = freeze row 1).
+        cell=None (or 'A1') unfreezes."""
+        if cell is None or str(cell).strip() == "":
+            worksheet.freeze_panes = None
+            return {"freeze_panes": None, "affected": [f"{worksheet.title}: panes unfrozen"]}
+        cell = str(cell).strip().upper().replace("$", "")
+        try:
+            min_col, min_row, max_col, max_row = range_boundaries(cell)
+        except Exception as exc:
+            raise ValueError(
+                f"Invalid freeze cell '{cell}': {exc}. Use a single A1-style cell "
+                "such as 'A2' (freeze the header row) or 'B2' (freeze row 1 and column A)."
+            ) from exc
+        if (min_col, min_row) != (max_col, max_row):
+            raise ValueError(
+                f"freeze_panes takes ONE cell, not a range: got '{cell}'. "
+                "'A2' freezes row 1; 'B2' freezes row 1 and column A."
+            )
+        worksheet.freeze_panes = cell
+        if cell == "A1":
+            return {"freeze_panes": None, "affected": [f"{worksheet.title}: panes unfrozen"]}
+        frozen = []
+        if min_row > 1:
+            frozen.append(f"rows 1..{min_row - 1}")
+        if min_col > 1:
+            frozen.append(f"columns A..{get_column_letter(min_col - 1)}")
+        return {
+            "freeze_panes": cell,
+            "affected": [f"{worksheet.title}: froze {' and '.join(frozen)}"],
+        }
+
+    # Excel's own worksheet-name rules; violating them makes the file unopenable.
+    _INVALID_SHEET_CHARS = set(r"[]:*?/\\")
+
+    @classmethod
+    def _validate_sheet_name(cls, name: str, workbook: Any) -> str:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("Sheet name must be a non-empty string.")
+        if len(name) > 31:
+            raise ValueError(
+                f"Sheet name '{name}' is {len(name)} chars: Excel allows at most 31."
+            )
+        bad = sorted(set(name) & cls._INVALID_SHEET_CHARS)
+        if bad:
+            raise ValueError(
+                f"Sheet name '{name}' contains characters Excel forbids: {bad}."
+            )
+        existing = {s.lower() for s in workbook.sheetnames}
+        if name.lower() in existing:
+            raise ValueError(
+                f"A sheet named '{name}' already exists (sheets: {workbook.sheetnames}). "
+                "Pick another name, or write into the existing sheet."
+            )
+        return name
+
+    @classmethod
+    def create_sheet(
+        cls, workbook: Any, name: str, index: Optional[int] = None
+    ) -> Dict[str, Any]:
+        name = cls._validate_sheet_name(name, workbook)
+        worksheet = workbook.create_sheet(title=name, index=index)
+        return {
+            "sheet": worksheet.title,
+            "index": workbook.sheetnames.index(worksheet.title),
+            "sheets": list(workbook.sheetnames),
+            "affected": [f"created sheet '{worksheet.title}'"],
+        }
+
+    @staticmethod
+    def delete_sheet(workbook: Any, name: str) -> Dict[str, Any]:
+        if name not in workbook.sheetnames:
+            raise ValueError(
+                f"Sheet '{name}' not found: workbook has sheets {workbook.sheetnames}."
+            )
+        if len(workbook.sheetnames) == 1:
+            raise ValueError(
+                f"Refusing to delete '{name}': a workbook must keep at least one sheet."
+            )
+        del workbook[name]
+        return {
+            "sheets": list(workbook.sheetnames),
+            "affected": [f"deleted sheet '{name}'"],
+        }
+
+    @classmethod
+    def rename_sheet(cls, workbook: Any, name: str, new_name: str) -> Dict[str, Any]:
+        if name not in workbook.sheetnames:
+            raise ValueError(
+                f"Sheet '{name}' not found: workbook has sheets {workbook.sheetnames}."
+            )
+        if new_name == name:
+            raise ValueError(f"new_name is identical to the current name '{name}'.")
+        new_name = cls._validate_sheet_name(new_name, workbook)
+        workbook[name].title = new_name
+        return {
+            "sheet": new_name,
+            "sheets": list(workbook.sheetnames),
+            "affected": [f"renamed sheet '{name}' -> '{new_name}'"],
+            "note": (
+                "Formulas in OTHER sheets that referenced the old name are NOT "
+                "rewritten by this engine — re-check any cross-sheet formulas."
+            ),
+        }
+
+    @classmethod
+    def copy_sheet(
+        cls, workbook: Any, name: str, new_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        if name not in workbook.sheetnames:
+            raise ValueError(
+                f"Sheet '{name}' not found: workbook has sheets {workbook.sheetnames}."
+            )
+        copy = workbook.copy_worksheet(workbook[name])
+        if new_name:
+            copy.title = cls._validate_sheet_name(new_name, workbook)
+        return {
+            "sheet": copy.title,
+            "sheets": list(workbook.sheetnames),
+            "affected": [f"copied sheet '{name}' -> '{copy.title}'"],
+            "note": (
+                "openpyxl's sheet copy carries values, formulas and styles but "
+                "NOT charts, images or data validations."
+            ),
+        }
+
+    @staticmethod
+    def _default_chart_anchor(worksheet: Any, data_max_col: Optional[int]) -> str:
+        """Right of everything already on the sheet, so the chart never sits on
+        top of the data (OA-5). Two columns of breathing room."""
+        rightmost = max(worksheet.max_column or 1, data_max_col or 1)
+        return f"{get_column_letter(rightmost + 2)}1"
+
+    @staticmethod
     def create_chart(
         worksheet: Any,
         data_range: str,
@@ -213,7 +348,9 @@ class ExcelAdapter:
             chart.add_data(data, titles_from_data=titles)
         if "title" in options:
             chart.title = options["title"]
-        anchor = options.get("chart_cell", "E1")
+        anchor = options.get("chart_cell") or ExcelAdapter._default_chart_anchor(
+            worksheet, max_col
+        )
         worksheet.add_chart(chart, anchor)
         return {
             "chart_type": chart_type,

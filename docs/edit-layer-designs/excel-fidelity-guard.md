@@ -1,6 +1,21 @@
 
 # Excel Fidelity Guard + Gap Strategy — Implementation Design
 
+> **ERRATUM (2026-07-28) — finding #2 below is WRONG and was reverted.**
+> `keep_vba=True` on a plain `.xlsx` does **not** have "zero side effects". openpyxl sets
+> `wb.vba_archive` unconditionally under that flag, and `vba_archive` being truthy alone
+> (a) flips `Workbook.mime_type` to the macro-workbook content type
+> (`workbook/workbook.py:360-370`) and (b) appends a `vbaProject` relationship pointing at
+> `vbaProject.bin` (`workbook/_writer.py:165-168`) that `_merge_vba` then has no bytes to
+> satisfy. The result is an `.xlsx` with a macro content type and a dangling relationship,
+> which real Excel refuses to open (`-50 参数错误`). The probes behind finding #2 only checked
+> that no *new parts* appeared; they never checked `[Content_Types].xml` or the rels.
+> `session.py::_load()` now gates `keep_vba` on `"xl/vbaProject.bin" in <source zip>`, and
+> `save_to()` asserts extension/content-type consistency before handing a file over.
+> See [bench/BUGS.md OA-1](../../../bench/BUGS.md) and
+> `tests/unit/test_bugs_oa_fixes.py`. Everything else in this document stands — including
+> `rich_text=True` (finding #1), which was independently exonerated.
+
 All claims below are either (1) inspection of the installed `openpyxl==3.1.5` source at
 `/opt/miniconda3/lib/python3.13/site-packages/openpyxl`, or (2) reproduced empirically with
 throwaway probes in `/private/tmp/.../scratchpad/excel_probe/` (kept on disk, not committed).
@@ -70,7 +85,8 @@ resolve with a real fixture (test plan §4).
    sheet XML part itself is still present (so the part-inventory guard alone cannot catch it).
    `rich_text=True` preserves it losslessly through a full load→save→reload cycle, with zero
    observed side effects on ordinary plain-string/number cells (`probe6_rich_text.py`).
-2. `keep_vba` is currently gated on the `.xlsm` extension in `session.py::_load()`. But
+2. **[REVERTED — see the erratum at the top of this file; this finding is false.]**
+   `keep_vba` is currently gated on the `.xlsm` extension in `session.py::_load()`. But
    `keep_vba=True` on a *plain* `.xlsx` with no macros has **zero side effects** (no spurious VBA
    parts appear in the output) while still rescuing `ctrlProps`/`activeX`/`vmlDrawing`/`customUI`
    parts if the file happens to have form controls (checkboxes, buttons) without any macro

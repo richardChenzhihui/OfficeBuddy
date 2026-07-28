@@ -1,11 +1,44 @@
 """High-level document rendering: session -> PDF -> page images, with caching."""
 import hashlib
+import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from ..core.session import EditSession
 from .applescript import export_docx_to_pdf, export_xlsx_to_pdf
 from .pdf_to_images import PageImage, locate_text_pages, pdf_to_images
+
+# Parts that change on every save but can never change the rendered page.
+# docProps/core.xml holds dcterms:modified, which openpyxl rewrites each time.
+_VOLATILE_PARTS = frozenset({"docProps/core.xml"})
+
+
+def content_digest(path: Path) -> str:
+    """Hash what would RENDER, not the file's bytes.
+
+    python-docx and openpyxl both rebuild the whole zip on save, stamping every
+    member with the current time (DOS timestamps, 2-second granularity), and
+    openpyxl additionally rewrites dcterms:modified. So saving unchanged
+    content still yields different file bytes, and a raw byte hash misses the
+    cache on most saves — re-exporting through Word/Excel for nothing. Hashing
+    length-prefixed (member name, member bytes) pairs instead is stable across
+    saves of identical content and still catches every real edit.
+    """
+    h = hashlib.sha256()
+    try:
+        with zipfile.ZipFile(path) as zf:
+            for name in sorted(zf.namelist()):
+                if name in _VOLATILE_PARTS:
+                    continue
+                data = zf.read(name)
+                # Length-prefixed: no (name, data) pairing can be ambiguous.
+                h.update(f"{name}\0{len(data)}\0".encode("utf-8"))
+                h.update(data)
+    except (zipfile.BadZipFile, OSError, RuntimeError):
+        # Unreadable package: fall back to raw bytes rather than break
+        # rendering. A spurious cache MISS is harmless; a hit would not be.
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    return h.hexdigest()
 
 
 class Renderer:
@@ -29,9 +62,8 @@ class Renderer:
 
     def render(self, sheet: Optional[str] = None, timeout: float = 120.0) -> List[PageImage]:
         self.session.flush()
-        content = self.session.working_path.read_bytes()
-        key_src = content + (sheet or "").encode()
-        key = hashlib.sha256(key_src).hexdigest()[:16]
+        digest = content_digest(self.session.working_path)
+        key = hashlib.sha256(f"{digest}|{sheet or ''}".encode()).hexdigest()[:16]
         if key == self._cache_hash and self._cache is not None:
             return self._cache[1]
 

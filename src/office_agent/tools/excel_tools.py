@@ -103,6 +103,47 @@ class ExcelDeleteChartInput(BaseModel):
     )
 
 
+class ExcelFreezePanesInput(BaseModel):
+    doc_id: str = Field(..., description="Document id")
+    sheet: str = Field(..., description="Sheet name")
+    cell: Optional[str] = Field(
+        "A2",
+        description=(
+            "Single A1-style cell: everything ABOVE and LEFT of it stays frozen "
+            "while scrolling. 'A2' freezes the header row; 'B1' freezes column A; "
+            "'B2' freezes both. null or 'A1' unfreezes."
+        ),
+    )
+
+
+class ExcelSheetInput(BaseModel):
+    doc_id: str = Field(..., description="Document id")
+    action: str = Field(
+        ...,
+        description="'create' | 'delete' | 'rename' | 'copy'",
+    )
+    sheet: Optional[str] = Field(
+        None,
+        description=(
+            "For create: the NEW sheet's name. For delete/rename/copy: the "
+            "EXISTING sheet to act on."
+        ),
+    )
+    new_name: Optional[str] = Field(
+        None,
+        description=(
+            "rename: the new name (required). copy: name for the copy "
+            "(optional; defaults to '<sheet> Copy')."
+        ),
+    )
+    index: Optional[int] = Field(
+        None,
+        description=(
+            "create only: 0-based tab position. Omit to append at the end."
+        ),
+    )
+
+
 class ExcelConditionalSelectInput(BaseModel):
     doc_id: str = Field(..., description="Document id")
     sheet: str = Field(..., description="Sheet name")
@@ -200,6 +241,56 @@ def excel_delete_chart(ctx: ToolContext, p: ExcelDeleteChartInput) -> dict:
     session = _excel_session(ctx, p.doc_id)
     ws, _ = _sheet_and_coords(session, p.sheet, None)
     return ExcelAdapter.delete_chart(ws, p.chart_index)
+
+
+@REGISTRY.register(
+    "excel_freeze_panes",
+    "Freeze rows/columns of a sheet so they stay visible while scrolling "
+    "(cell='A2' freezes the header row). Applies immediately; snapshotted.",
+    ExcelFreezePanesInput,
+    mutates=True,
+)
+def excel_freeze_panes(ctx: ToolContext, p: ExcelFreezePanesInput) -> dict:
+    session = _excel_session(ctx, p.doc_id)
+    ws, _ = _sheet_and_coords(session, p.sheet, None)
+    return ExcelAdapter.freeze_panes(ws, p.cell)
+
+
+@REGISTRY.register(
+    "excel_manage_sheet",
+    "Worksheet lifecycle: create / delete / rename / copy a sheet. Use "
+    "action='create' to add a summary or chart sheet before writing into it "
+    "(cross-sheet formulas then reference it as \"'Sheet name'!A1\"). Applies "
+    "immediately; snapshotted.",
+    ExcelSheetInput,
+    mutates=True,
+)
+def excel_manage_sheet(ctx: ToolContext, p: ExcelSheetInput) -> dict:
+    session = _excel_session(ctx, p.doc_id)
+    wb = session.doc
+    if not p.sheet:
+        raise ValueError(
+            f"'sheet' is required for action='{p.action}' "
+            + (
+                "(the name of the sheet to create)."
+                if p.action == "create"
+                else "(the existing sheet to act on)."
+            )
+        )
+    if p.action == "create":
+        return ExcelAdapter.create_sheet(wb, p.sheet, p.index)
+    if p.action == "delete":
+        return ExcelAdapter.delete_sheet(wb, p.sheet)
+    if p.action == "rename":
+        if not p.new_name:
+            raise ValueError("action='rename' requires new_name.")
+        return ExcelAdapter.rename_sheet(wb, p.sheet, p.new_name)
+    if p.action == "copy":
+        return ExcelAdapter.copy_sheet(wb, p.sheet, p.new_name)
+    raise ValueError(
+        f"Unknown action '{p.action}': expected one of "
+        "['create', 'delete', 'rename', 'copy']."
+    )
 
 
 @REGISTRY.register(

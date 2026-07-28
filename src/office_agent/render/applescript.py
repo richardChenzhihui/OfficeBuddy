@@ -81,6 +81,44 @@ def _q(value) -> str:
     return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
 
+_CLEANUP_TIMEOUT = 20.0
+
+
+def close_stale_document(app: str, filename: str) -> None:
+    """Best-effort: close a document the failed export may have left open.
+
+    A workbook left open in Excel makes every later `open` of the same name
+    return the stale in-memory copy, so subsequent exports fail too — the -50
+    avalanche in bench/BUGS.md OA-6. Never raises, never launches the app, and
+    never quits it (the user may have their own documents open).
+    """
+    name = _q(filename)
+    if app == "Microsoft Word":
+        alerts, collection = "set display alerts to alerts none", "every document"
+    else:
+        alerts, collection = "set display alerts to false", "every workbook"
+    script = f'''
+if application "{_q(app)}" is running then
+    with timeout of {int(_CLEANUP_TIMEOUT) - 5} seconds
+        tell application "{_q(app)}"
+            try
+                {alerts}
+            end try
+            repeat with d in (get {collection})
+                try
+                    if name of d is "{name}" then close d saving no
+                end try
+            end repeat
+        end tell
+    end timeout
+end if
+'''
+    try:
+        run_applescript(script, _CLEANUP_TIMEOUT, app)
+    except Exception:  # noqa: BLE001 — cleanup must never mask the real failure
+        pass
+
+
 def export_docx_to_pdf(docx_path: Path, pdf_path: Path, timeout: float = 120.0) -> Path:
     pdf_path.unlink(missing_ok=True)
     script = f'''
@@ -94,8 +132,13 @@ with timeout of {int(timeout) - 5} seconds
     end tell
 end timeout
 '''
-    run_applescript(script, timeout, "Microsoft Word")
+    try:
+        run_applescript(script, timeout, "Microsoft Word")
+    except RenderError:
+        close_stale_document("Microsoft Word", docx_path.name)
+        raise
     if not pdf_path.exists():
+        close_stale_document("Microsoft Word", docx_path.name)
         raise RenderError(
             f"Word reported success but no PDF was produced at {pdf_path}."
         )
@@ -129,8 +172,13 @@ with timeout of {int(timeout) - 5} seconds
     end tell
 end timeout
 '''
-    run_applescript(script, timeout, "Microsoft Excel")
+    try:
+        run_applescript(script, timeout, "Microsoft Excel")
+    except RenderError:
+        close_stale_document("Microsoft Excel", xlsx_path.name)
+        raise
     if not pdf_path.exists():
+        close_stale_document("Microsoft Excel", xlsx_path.name)
         raise RenderError(
             f"Excel reported success but no PDF was produced at {pdf_path}."
         )

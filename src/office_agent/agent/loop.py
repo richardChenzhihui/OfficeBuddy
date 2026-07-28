@@ -36,8 +36,13 @@ from .prompts import SYSTEM_EXECUTOR
 from .verifier import VerificationResult, verify_edit
 
 # Mutations whose effect is purely data (verified by tool results / re-reads);
-# everything else gets visual verification.
-NON_VISUAL_TOOLS = {"excel_write_cells", "excel_edit_formula"}
+# everything else gets visual verification. Frozen panes belong here because a
+# PDF export CANNOT show them — visual verification would fail by construction.
+NON_VISUAL_TOOLS = {
+    "excel_write_cells",
+    "excel_edit_formula",
+    "excel_freeze_panes",
+}
 
 HARNESS_TOOLS = {"propose_plan", "update_plan", "ask_user", "render_preview"}
 
@@ -147,6 +152,7 @@ class AgentSession:
                         "验证仍未通过且修复次数已达上限，停止本回合。"
                         "文档保持当前状态（原文件未动，可用 undo 回退）。"
                     )
+                    self._rescue_unsaved("验证未通过、已达修复上限")
                     return TurnResult(
                         text=final_text,
                         plan=self.plan,
@@ -184,6 +190,7 @@ class AgentSession:
 
             if self.abort_requested:
                 self.ui.notify("按用户要求中止任务。")
+                self._rescue_unsaved("任务中止")
                 return TurnResult(
                     text=final_text,
                     plan=self.plan,
@@ -224,6 +231,9 @@ class AgentSession:
         self.ui.tool_call(name, tool_input)
 
         if self.budget.task_exhausted() and name not in HARNESS_TOOLS:
+            # Rescue BEFORE answering, so the model can tell the user where its
+            # partial work went instead of reporting an empty-handed failure.
+            rescued = self._rescue_unsaved("tool-call budget exhausted")
             return (
                 json.dumps(
                     {
@@ -234,7 +244,16 @@ class AgentSession:
                             "exhausted. Stop editing: summarize progress, state "
                             "what remains, and ask the user how to proceed."
                         ),
-                    }
+                        "rescued_paths": rescued,
+                        "rescue_note": (
+                            "The harness saved your partial work to the paths "
+                            "above (the original file is untouched). Report "
+                            "those paths to the user in your summary."
+                            if rescued
+                            else "No unsaved edits needed rescuing."
+                        ),
+                    },
+                    ensure_ascii=False,
                 ),
                 True,
             )
@@ -310,6 +329,51 @@ class AgentSession:
             return json.dumps(result, ensure_ascii=False, default=str), True
 
         return json.dumps(result, ensure_ascii=False, default=str), False
+
+    # ---------------------------------------------------------- rescue saves
+
+    def _rescue_unsaved(self, reason: str) -> List[str]:
+        """Never hand back an empty result after burning the budget (OA-4).
+
+        On every abnormal termination — budget exhausted, circuit breaker,
+        abort, verification given up — persist each open document that has
+        edits but was never saved. Always to a NEW path beside the original
+        (which stays byte-identical), so this can never destroy anything.
+        """
+        rescued: List[str] = []
+        for doc_id, session in list(self.ctx.sessions.sessions.items()):
+            manager = self.ctx.snapshots.get(doc_id)
+            has_edits = manager is not None and len(manager.list()) > 1
+            if not has_edits or session.written_paths:
+                continue  # nothing done, or the model already saved it
+            original = session.original_path
+            dest = original.with_name(
+                f"{original.stem}.partial-{doc_id}{original.suffix}"
+            )
+            try:
+                # accept_fidelity_loss: the original is untouched, so a lossy
+                # rescue copy strictly beats losing the work — but disclose it.
+                saved = session.save_to(str(dest), accept_fidelity_loss=True)
+            except Exception as exc:  # noqa: BLE001 — rescue is best-effort
+                self.ui.notify(
+                    f"⚠️ 未能抢救保存 {original.name} 的部分成果：{exc}"
+                )
+                continue
+            rescued.append(str(saved))
+            self.saved_paths.append(str(saved))  # surfaced by the CLI turn report
+            lost = getattr(session, "fidelity_report", [])
+            loss_note = (
+                f"（注意：该副本丢失了 {len(lost)} 个本引擎无法保留的部件："
+                + ", ".join(sorted({e.category for e in lost}))
+                + "）"
+                if lost
+                else ""
+            )
+            self.ui.notify(
+                f"💾 {reason}：已把部分成果另存为 {saved}"
+                f"（原文件 {original} 未改动）{loss_note}"
+            )
+        return rescued
 
     # ------------------------------------------------------ harness handlers
 

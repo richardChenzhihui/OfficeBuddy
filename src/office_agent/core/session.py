@@ -74,6 +74,54 @@ def _zip_inventory(source) -> Dict[str, int]:
         return {i.filename: i.file_size for i in zf.infolist()}
 
 
+def _has_vba(path: Path) -> bool:
+    """True only if the package actually contains a VBA project.
+
+    keep_vba is a rescue channel for macro-only parts (vbaProject/ctrlProps/
+    activeX/vmlDrawing); turning it on for a workbook without VBA corrupts the
+    output instead of preserving anything."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return "xl/vbaProject.bin" in zf.namelist()
+    except (zipfile.BadZipFile, OSError):
+        return False  # let load_workbook produce the real diagnostic
+
+
+_MACRO_MAIN_CT = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+
+
+def _assert_extension_matches_content_type(path: Path) -> None:
+    """Regression guard for OA-1: a .xlsx must never carry the macro-workbook
+    content type, and a macro content type must never reference a vbaProject
+    part that isn't in the package. Both make real Excel fail with -50."""
+    if path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            content_types = zf.read("[Content_Types].xml").decode("utf-8", "replace")
+            rels = (
+                zf.read("xl/_rels/workbook.xml.rels").decode("utf-8", "replace")
+                if "xl/_rels/workbook.xml.rels" in names
+                else ""
+            )
+    except (zipfile.BadZipFile, KeyError, OSError) as exc:
+        raise RuntimeError(f"Saved workbook {path} is not a readable OOXML package: {exc}")
+    is_macro_ct = _MACRO_MAIN_CT in content_types
+    if is_macro_ct and path.suffix.lower() == ".xlsx":
+        raise RuntimeError(
+            f"Refusing to hand over {path}: it was written with the macro-workbook "
+            "content type but has an .xlsx extension — real Excel rejects this "
+            "package (-50). This is an office-agent bug; please report it."
+        )
+    if "vbaProject.bin" in rels and "xl/vbaProject.bin" not in names:
+        raise RuntimeError(
+            f"Refusing to hand over {path}: it declares a vbaProject relationship "
+            "but the package contains no xl/vbaProject.bin — real Excel rejects "
+            "this package (-50). This is an office-agent bug; please report it."
+        )
+
+
 def _format_fidelity_error(lost: List[FidelityLossEntry], original: Path) -> str:
     lines = "\n".join(f"  - {e.category}: {e.path} ({e.size} bytes)" for e in lost)
     return (
@@ -205,9 +253,13 @@ class EditSession:
             return WordDocument(str(self.working_path))
         return load_workbook(
             str(self.working_path),
-            # Always on: rescues vbaProject/ctrlProps/activeX/vmlDrawing parts
-            # whenever present; verified zero side effects on plain .xlsx.
-            keep_vba=True,
+            # ONLY when the source really carries VBA. openpyxl sets
+            # wb.vba_archive unconditionally under keep_vba=True, and that flag
+            # alone flips mime_type to macroEnabled AND appends a vbaProject
+            # relationship — on a plain .xlsx that yields an .xlsx package with
+            # a macro content type and a dangling vbaProject.bin rel, which
+            # real Excel refuses to open (-50). See bench/BUGS.md OA-1.
+            keep_vba=_has_vba(self.working_path),
             # Explicit (openpyxl default): external-link formulas round-trip.
             keep_links=True,
             # Without this, intra-cell mixed-run formatting is silently
@@ -285,6 +337,8 @@ class EditSession:
             ]
             if lost:
                 raise FidelityLossError(_format_fidelity_error(lost, self.original_path))
+        if self.doc_type == "excel":
+            _assert_extension_matches_content_type(self.working_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(self.working_path, target)
         self.written_paths.add(str(target))

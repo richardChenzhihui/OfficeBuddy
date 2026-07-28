@@ -41,6 +41,14 @@ again on top of the wrong one.
 - Conditional edits ('cells greater than X', 'rows containing Y'): first run \
 excel_conditional_select to compute the EXACT matching cells, then apply the \
 edit to those cells only — never style a whole range by eye.
+- Excel sheet work: excel_manage_sheet creates/renames/copies/deletes sheets \
+(create a summary sheet first, then write into it and reference it from other \
+sheets as "'Sheet name'!A1"); excel_freeze_panes keeps header rows visible \
+(cell='A2'). Frozen panes do NOT show up in a PDF render — confirm them via \
+get_structure's freeze_panes field, not visually.
+- Charts default to an anchor two columns right of the used range so they never \
+cover the data; pass chart_options.chart_cell only when the user wants a \
+specific position, or put the chart on its own sheet via excel_manage_sheet.
 - Capability notes: Word table/cell borders use style_params.border \
 (e.g. {'style':'single','size':0.5,'color':'#000000'}) on a table/row/cell \
 target; cell shading uses style_params.bg_color; inserted tables already have \

@@ -1,0 +1,745 @@
+<meta charset="UTF-8">
+<title>Office Agent — Harness 设计手册</title>
+<style>
+  :root{
+    --paper:#F4F6F9; --paper-raised:#FFFFFF; --paper-sunk:#EAEDF3;
+    --ink:#12161D; --ink-muted:#5A6472; --ink-faint:#8A93A0;
+    --line:#DCE2EA; --line-strong:#C3CBD8;
+    --blueprint:#24478F; --blueprint-strong:#16305F; --blueprint-tint:#E7ECF7;
+    --red:#C4362E; --red-tint:#FBE7E5;
+    --amber:#B8790A; --amber-tint:#FCEFD8;
+    --green:#1E8E5A; --green-tint:#E3F5EA;
+    --sheet-bg:#EFF2F7; --sheet-line:#C7D0DE;
+    --shadow:0 1px 2px rgba(18,22,29,.06),0 10px 28px rgba(18,22,29,.06);
+    --radius:12px;
+    --mono:ui-monospace,"SF Mono","SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Segoe UI",Arial,sans-serif;
+    --measure:70ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0B0E14; --paper-raised:#131826; --paper-sunk:#0F131C;
+      --ink:#E8ECF3; --ink-muted:#AAB3C2; --ink-faint:#6E7889;
+      --line:#232B3C; --line-strong:#2E384C;
+      --blueprint:#8CB0FF; --blueprint-strong:#B7CBFF; --blueprint-tint:#182342;
+      --red:#FF8B84; --red-tint:#33191B;
+      --amber:#F2BE5C; --amber-tint:#332711;
+      --green:#66E0AA; --green-tint:#0F2A21;
+      --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 34px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0B0E14; --paper-raised:#131826; --paper-sunk:#0F131C;
+    --ink:#E8ECF3; --ink-muted:#AAB3C2; --ink-faint:#6E7889;
+    --line:#232B3C; --line-strong:#2E384C;
+    --blueprint:#8CB0FF; --blueprint-strong:#B7CBFF; --blueprint-tint:#182342;
+    --red:#FF8B84; --red-tint:#33191B;
+    --amber:#F2BE5C; --amber-tint:#332711;
+    --green:#66E0AA; --green-tint:#0F2A21;
+    --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 34px rgba(0,0,0,.55);
+  }
+  :root[data-theme="light"]{
+    --paper:#F4F6F9; --paper-raised:#FFFFFF; --paper-sunk:#EAEDF3;
+    --ink:#12161D; --ink-muted:#5A6472; --ink-faint:#8A93A0;
+    --line:#DCE2EA; --line-strong:#C3CBD8;
+    --blueprint:#24478F; --blueprint-strong:#16305F; --blueprint-tint:#E7ECF7;
+    --red:#C4362E; --red-tint:#FBE7E5;
+    --amber:#B8790A; --amber-tint:#FCEFD8;
+    --green:#1E8E5A; --green-tint:#E3F5EA;
+    --shadow:0 1px 2px rgba(18,22,29,.06),0 10px 28px rgba(18,22,29,.06);
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;scroll-padding-top:24px;}
+  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto;} }
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:16px; line-height:1.68;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--blueprint-tint); color:var(--blueprint-strong); }
+
+  h1,h2,h3,h4{ font-family:var(--mono); font-weight:700; text-wrap:balance; margin:0; letter-spacing:-.01em; }
+  p{ margin:0 0 1em; max-width:var(--measure); color:var(--ink); }
+  a{ color:var(--blueprint); }
+  code, .mono{ font-family:var(--mono); }
+
+  .eyebrow{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-faint); display:flex; align-items:center; gap:.6em; margin-bottom:.9em;
+  }
+  .eyebrow::before{ content:""; width:18px; height:1px; background:var(--line-strong); display:inline-block; }
+
+  /* ---------- layout ---------- */
+  .shell{ display:grid; grid-template-columns:220px minmax(0,1fr); gap:0; max-width:1180px; margin:0 auto; }
+  .rail{ position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto; padding:32px 18px 32px 28px; }
+  .rail-inner{ display:flex; flex-direction:column; gap:2px; }
+  .rail a{
+    font-family:var(--mono); font-size:12.5px; color:var(--ink-muted); text-decoration:none;
+    padding:6px 10px; border-radius:7px; border-left:2px solid transparent;
+  }
+  .rail a:hover{ color:var(--ink); background:var(--paper-sunk); }
+  .rail-mark{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); margin-bottom:18px; letter-spacing:-.02em; }
+  .rail-mark small{ display:block; font-weight:400; color:var(--ink-faint); font-size:10.5px; letter-spacing:.08em; margin-top:3px; }
+
+  main{ min-width:0; padding:56px 40px 120px; }
+  section{ padding-top:52px; margin-top:-52px; } /* anchor offset without JS */
+  .section-gap{ margin-top:88px; }
+
+  @media (max-width:960px){
+    .shell{ grid-template-columns:1fr; }
+    .rail{ display:none; }
+    main{ padding:36px 20px 100px; }
+  }
+
+  /* ---------- hero ---------- */
+  .hero{ padding-bottom:8px; }
+  .hero h1{ font-size:clamp(28px,4vw,40px); line-height:1.15; margin-bottom:14px; }
+  .hero .tagline{ font-family:var(--sans); font-size:17.5px; color:var(--ink-muted); max-width:64ch; }
+  .tip{
+    margin-top:22px; padding:14px 16px; border:1px dashed var(--line-strong); border-radius:10px;
+    font-size:13.5px; color:var(--ink-muted); background:var(--paper-sunk);
+  }
+  .tip b{ color:var(--ink); font-family:var(--mono); font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; }
+
+  .stat-strip{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:30px 0 6px; }
+  .stat{ background:var(--paper-raised); padding:16px 14px; }
+  .stat .n{ font-family:var(--mono); font-size:20px; font-weight:700; color:var(--blueprint); }
+  .stat .d{ font-size:12px; color:var(--ink-muted); margin-top:4px; line-height:1.4; }
+  @media (max-width:700px){ .stat-strip{ grid-template-columns:repeat(2,1fr); } }
+
+  /* ---------- generic prose section ---------- */
+  .section-head{ margin-bottom:22px; }
+  .section-head h2{ font-size:23px; margin-bottom:8px; }
+  .section-sub{ color:var(--ink-muted); max-width:66ch; font-size:15px; }
+
+  /* ---------- risk cards (problem statement) ---------- */
+  .risk-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+  @media (max-width:700px){ .risk-grid{ grid-template-columns:1fr; } }
+  .risk{ border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; background:var(--paper-raised); }
+  .risk .tag{ font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--red); border:1px solid var(--red); background:var(--red-tint); padding:2px 8px; border-radius:99px; display:inline-block; margin-bottom:10px; }
+  .risk p{ font-size:14.5px; color:var(--ink-muted); margin:0; }
+  .risk p b{ color:var(--ink); font-weight:600; }
+
+  /* ---------- blueprint sheet (mermaid host, fixed-light) ---------- */
+  .sheet{
+    background:var(--sheet-bg); border:1px solid var(--sheet-line); border-radius:14px;
+    padding:22px 18px 10px; margin:22px 0; overflow-x:auto;
+    background-image:linear-gradient(var(--sheet-line) 1px,transparent 1px),linear-gradient(90deg,var(--sheet-line) 1px,transparent 1px);
+    background-size:26px 26px; background-position:center; box-shadow:var(--shadow);
+  }
+  .sheet .cap{ font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#5A6472; padding:0 6px 12px; }
+  .sheet pre.mermaid{ margin:0; background:transparent !important; }
+  .legend{ display:flex; gap:16px; flex-wrap:wrap; font-family:var(--mono); font-size:11.5px; color:var(--ink-muted); margin:-6px 0 20px; }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .legend i{ width:11px; height:11px; border-radius:3px; display:inline-block; border:1.5px solid; }
+  .legend i.pass{ background:var(--green-tint); border-color:var(--green); }
+  .legend i.retry{ background:var(--amber-tint); border-color:var(--amber); }
+  .legend i.block{ background:var(--red-tint); border-color:var(--red); }
+
+  /* ---------- ratchet mini diagram ---------- */
+  .ratchet{ display:flex; align-items:stretch; gap:0; overflow-x:auto; padding:26px 4px 6px; }
+  .rblock{ flex:0 0 auto; min-width:132px; border:1px solid var(--line); border-radius:10px; padding:12px 12px; background:var(--paper-raised); position:relative; }
+  .rblock .k{ font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); }
+  .rblock .v{ font-size:13px; color:var(--ink); margin-top:4px; }
+  .rarrow{ flex:0 0 34px; display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-family:var(--mono); }
+  .rblock.passpt{ border-color:var(--green); background:var(--green-tint); }
+  .rblock.passpt .k{ color:var(--green); }
+  .rtrack{ position:absolute; left:0; right:0; top:-16px; height:2px; }
+  .rtrack.prev{ background:var(--ink-faint); opacity:.5; }
+  .rtrack.base{ background:var(--green); }
+
+  /* ---------- mechanism cards ---------- */
+  .mech{ border:1px solid var(--line); border-radius:var(--radius); background:var(--paper-raised); padding:20px 22px; margin-bottom:16px; box-shadow:var(--shadow); }
+  .mech-top{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+  .mech-top h3{ font-size:15.5px; font-family:var(--sans); font-weight:700; }
+  .fchip{ font-family:var(--mono); font-size:11px; color:var(--blueprint); background:var(--blueprint-tint); border:1px solid var(--line-strong); padding:2px 9px; border-radius:99px; white-space:nowrap; }
+  .mech p{ font-size:14.5px; color:var(--ink-muted); }
+  .mech .why{ font-size:14.5px; color:var(--ink); background:var(--paper-sunk); border-left:3px solid var(--blueprint); padding:9px 13px; border-radius:0 8px 8px 0; margin:10px 0; }
+  .mech pre{ background:var(--paper-sunk); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.55; margin:10px 0; }
+  .mech .angle{ font-size:13.5px; color:var(--ink-muted); margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); }
+  .mech .angle b{ font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-faint); display:block; margin-bottom:5px; }
+
+  /* ---------- decisions table ---------- */
+  .decisions{ display:flex; flex-direction:column; gap:14px; }
+  .decision{ border:1px solid var(--line); border-radius:var(--radius); background:var(--paper-raised); padding:18px 20px; }
+  .decision .grid{ display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:13.5px; }
+  .decision .lab{ font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); padding-top:2px; white-space:nowrap; }
+  .decision .val{ color:var(--ink-muted); }
+  .decision .val b{ color:var(--ink); font-weight:600; }
+  .decision .val.tradeoff{ color:var(--amber); background:var(--amber-tint); border-radius:6px; padding:4px 8px; display:inline-block; }
+  .decision .val.result{ color:var(--green); }
+
+  /* ---------- timeline ---------- */
+  .timeline{ position:relative; padding-left:26px; }
+  .timeline::before{ content:""; position:absolute; left:6px; top:6px; bottom:6px; width:1.5px; background:var(--line-strong); }
+  .tl-item{ position:relative; padding-bottom:26px; }
+  .tl-item::before{ content:""; position:absolute; left:-26px; top:4px; width:9px; height:9px; border-radius:50%; background:var(--paper); border:2px solid var(--blueprint); }
+  .tl-item .commit{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); }
+  .tl-item h4{ font-size:14.5px; font-family:var(--sans); margin:3px 0 5px; }
+  .tl-item p{ font-size:14px; color:var(--ink-muted); margin:0; }
+
+  /* ---------- lists ---------- */
+  .clean-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px; }
+  .clean-list li{ position:relative; padding-left:20px; font-size:14.5px; color:var(--ink-muted); }
+  .clean-list li::before{ content:"—"; position:absolute; left:0; color:var(--blueprint); }
+  .clean-list li b{ color:var(--ink); font-weight:600; }
+
+  /* ---------- future design cards ---------- */
+  .doc-card{ border:1px solid var(--line); border-radius:var(--radius); background:var(--paper-raised); padding:18px 20px; margin-bottom:14px; }
+  .doc-card .eyebrow{ margin-bottom:6px; }
+  .doc-card h4{ font-family:var(--sans); font-size:15px; margin-bottom:8px; }
+  .doc-card p{ font-size:14.5px; color:var(--ink-muted); }
+  .doc-card .rejected{ font-size:13px; color:var(--red); margin-top:8px; }
+  .doc-card .rejected b{ font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; }
+
+  /* ---------- qa ---------- */
+  .qa{ border-bottom:1px solid var(--line); padding:18px 0; }
+  .qa:last-child{ border-bottom:none; }
+  .qa .q{ font-size:15px; font-weight:600; color:var(--ink); display:flex; gap:10px; }
+  .qa .q .tag{ font-family:var(--mono); color:var(--blueprint); flex:0 0 auto; }
+  .qa .a{ font-size:14.5px; color:var(--ink-muted); margin-top:8px; padding-left:26px; }
+
+  /* ---------- footer ---------- */
+  .stack{ display:flex; flex-wrap:wrap; gap:8px; }
+  .stack span{ font-family:var(--mono); font-size:12px; color:var(--ink-muted); border:1px solid var(--line); padding:4px 10px; border-radius:99px; }
+  footer{ border-top:1px solid var(--line); margin-top:80px; padding-top:26px; font-size:13px; color:var(--ink-faint); }
+
+  ::-webkit-scrollbar{ height:8px; width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line-strong); border-radius:4px; }
+</style>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-inner">
+      <div class="rail-mark">OFFICE AGENT<small>HARNESS DESIGN DOSSIER</small></div>
+      <a href="#problem">为什么不能只靠 Prompt</a>
+      <a href="#architecture">系统架构</a>
+      <a href="#core-loop">核心闭环</a>
+      <a href="#escalation">反暴力升级梯</a>
+      <a href="#mechanisms">关键机制</a>
+      <a href="#decisions">设计决策与权衡</a>
+      <a href="#challenges">踩坑与修复</a>
+      <a href="#timeline">工程演进</a>
+      <a href="#testing">测试与验证纪律</a>
+      <a href="#future">面向未来的设计</a>
+      <a href="#qa">面试问答预案</a>
+      <a href="#stack">技术栈 &amp; 局限</a>
+    </div>
+  </nav>
+
+  <main>
+    <!-- ============ HERO ============ -->
+    <section id="hero" class="hero">
+      <div class="eyebrow">AGENT HARNESS DESIGN // 项目自述</div>
+      <h1>Office Agent：让 LLM 编辑真实 Word / Excel 文档，<br>但从不相信它自己说"改好了"</h1>
+      <p class="tagline">
+        一个跑在 Mac 上的自然语言文档编辑 agent。核心不是"LLM 调工具"，而是它下面那套
+        <b style="color:var(--ink)">闭环控制系统</b>：每一步编辑都要经过 Word/Excel 本体真实渲染出的截图、
+        交给一个完全独立、无状态的视觉验证器裁决，执行者永远不能给自己的作业打分；
+        失败会被归一化成"签名"，同一类失败会触发换策略乃至问用户，而不是无限重试。
+      </p>
+      <div class="tip">
+        <b>使用建议</b><br>
+        面试官问"介绍一个项目"时，从上面这段电梯陈述开始（20 秒）；被追问"这有什么难的"，
+        翻到 <a href="#mechanisms">关键机制</a> 挑 1-2 张卡片展开讲 file:line 和代码；
+        被追问"权衡"或"取舍"，翻到 <a href="#decisions">设计决策</a>；被问"怎么测试一个 LLM agent"，
+        翻到 <a href="#testing">测试与验证纪律</a>。<a href="#qa">面试问答预案</a> 是压轴的追问清单。
+      </div>
+
+      <div class="stat-strip">
+        <div class="stat"><div class="n">129</div><div class="d">个离线测试全绿，1.3s 跑完（FakeLLM 驱动，零网络依赖）</div></div>
+        <div class="stat"><div class="n">24+8</div><div class="d">项对抗性多 agent 复审发现，两轮全部修复上线</div></div>
+        <div class="stat"><div class="n">3.1s</div><div class="d">20,000 行 × 20 列工作簿的保真度守卫试序列化开销</div></div>
+        <div class="stat"><div class="n">12/13</div><div class="d">场景实测战池首轮通过，剩余 3/3 复测稳定</div></div>
+      </div>
+    </section>
+
+    <!-- ============ PROBLEM ============ -->
+    <section id="problem" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">PROBLEM // 问题</div>
+        <h2>为什么不能只靠 Prompt</h2>
+        <p class="section-sub">
+          "让 LLM 调 python-docx / openpyxl 工具，相信它自己汇报'已成功编辑'"——对真实办公文档来说是不安全的。
+          这套 harness 要正面解决的是 5 类具体、可复现的工程风险，而不是抽象的"agent 可靠性"口号。
+        </p>
+      </div>
+      <div class="risk-grid">
+        <div class="risk"><span class="tag">自证偏差</span>
+          <p><b>执行者的自我汇报不可信。</b>"我成功把字体改了"是模型自己的叙述，不是文档真的长什么样的证据——需要一个只看像素、不看执行过程的独立裁判。</p>
+        </div>
+        <div class="risk"><span class="tag">签名碰撞</span>
+          <p><b>错误文本每次都不一样。</b>不同单元格、不同缺失的词——朴素的字符串匹配永远发现不了"这是同一类错",重试逻辑会在一个坏思路上无限循环。</p>
+        </div>
+        <div class="risk"><span class="tag">决策失效</span>
+          <p><b>用户的显式决定必须真正生效。</b>如果"中止/跳过"的执行依赖模型在下一轮正确读懂并服从一个 tool_result，那这个决定随时可能被模型忽略或曲解。</p>
+        </div>
+        <div class="risk"><span class="tag">静默丢数据</span>
+          <p><b>openpyxl 的 writer 会静默丢弃它不认识的 OOXML 部件。</b>一次普通的保存就可能不可逆地丢失图表、透视表、批注——除非有东西主动去检查。</p>
+        </div>
+        <div class="risk"><span class="tag">自动化悬挂</span>
+          <p><b>macOS 自动化真实 Office App 极易"隐形挂起"。</b>权限弹窗、覆盖确认框、甚至连"检查目录能不能读"这种系统调用本身都会挂起而不是抛异常——普通的异常处理模型根本观察不到。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ARCHITECTURE ============ -->
+    <section id="architecture" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">ARCHITECTURE // 系统架构</div>
+        <h2>六层结构：harness 说了算，不是模型说了算</h2>
+        <p class="section-sub">
+          唯一被允许"判断一步是否完成"的是 harness 核心；工具层、适配层、渲染验证闭环都只是它调用的能力。
+        </p>
+      </div>
+
+      <div class="sheet">
+        <div class="cap">FIG.1 — LAYER MAP</div>
+        <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables': {'background':'#EFF2F7','primaryColor':'#FFFFFF','primaryTextColor':'#131A26','primaryBorderColor':'#2454B8','lineColor':'#1D3A73','fontFamily':'monospace','fontSize':'13px'}}}%%
+flowchart TD
+    CORE["harness 核心\nagent/loop.py · budget.py · verifier.py · history.py"]
+    TOOLS["工具层\nregistry.py · selector_parser.py · interaction_tools.py"]
+    ADAPT["文档适配层（无状态）\nword_adapter.py · excel_adapter.py"]
+    RENDER["渲染 + 视觉验证闭环\napplescript.py · pdf_to_images.py · page_diff.py · renderer.py"]
+    SESSION["会话隔离与安全边界\nsession.py · snapshot_manager.py · cli.py"]
+    LLMUI["LLM 客户端 + 终端 UI + 离线测试\nllm/client.py · ui/cli_ui.py · tests/fake_llm.py"]
+
+    CORE --> TOOLS --> ADAPT
+    CORE --> RENDER
+    CORE --> SESSION
+    CORE -.->|驱动| LLMUI
+
+    classDef core fill:#E7ECF7,stroke:#24478F,color:#16305F,stroke-width:2px;
+    class CORE core;
+        </pre>
+      </div>
+
+      <ul class="clean-list">
+        <li><b>harness 核心</b> —— 驱动 plan → execute → render → verify → escalate 这一整个循环；拥有全部控制流状态（计划状态、每步预算、abort 标志、"哪些文档还有未验证的改动"），唯一有权判定一步"完成"的地方。</li>
+        <li><b>工具层</b> —— 把 pydantic 模型直接变成 Anthropic tool schema，用统一的 <code>{success, error, error_type}</code> 信封包裹每个 handler，成功的 mutating 调用自动打快照；选择器解析对"结构性错误"和"内容没匹配到"给出不同的契约（抛异常 vs 返回空列表）。</li>
+        <li><b>文档适配层</b> —— 纯 <code>@staticmethod</code>，对已经打开的 worksheet/Document 做原地修改，返回 JSON-safe 的 affected 清单；这里是唯一懂 OOXML/openpyxl 对象模型细节（字体、边框 XML、图表 Reference range、run 拼接）的地方。</li>
+        <li><b>渲染 + 视觉验证闭环</b> —— 用零弹窗 AppleScript 把真实文档导出 PDF，栅格化成 PNG，把改动前后的像素做 diff（且永远只对着"上一次通过验证的基线"diff，绝不是"上一次任意一次渲染"），把改动区域裁给独立验证器。</li>
+        <li><b>会话隔离与安全边界</b> —— 把目标文件复制进 App 自己的沙盒容器（这样渲染永远不会触发权限弹窗），所有写回磁盘的操作都要过两道独立的同意闸门（覆盖闸门 + Excel 保真度闸门），并实现基于全量字节快照的 undo/redo。</li>
+        <li><b>LLM 客户端 / 终端 UI / 离线测试</b> —— 对 Anthropic SDK 的一层薄封装（指向 MiniMax-M3 的 Anthropic 兼容端点），Rich + questionary 的终端 UX，以及一个和真实客户端调用签名完全一致的 FakeLLM，让整条控制流可以在零网络依赖下被确定性地测试。</li>
+      </ul>
+    </section>
+
+    <!-- ============ CORE LOOP ============ -->
+    <section id="core-loop" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">CORE LOOP // 一次编辑的生命周期</div>
+        <h2>Plan → Execute → Render → Verify → Escalate</h2>
+        <p class="section-sub">
+          模型把一步标记 <code>done</code>，并不代表这步真的完成了——它只是触发了渲染和视觉验证；
+          验证不通过，这步会被强制打回 <code>in_progress</code>，并带着"哪页、哪个元素、差在哪"定向修复。
+        </p>
+      </div>
+
+      <div class="sheet">
+        <div class="cap">FIG.2 — 单步编辑的闭环（含升级梯分支）</div>
+        <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables': {'background':'#EFF2F7','primaryColor':'#FFFFFF','primaryTextColor':'#131A26','primaryBorderColor':'#2454B8','lineColor':'#1D3A73','fontFamily':'monospace','fontSize':'13px'}}}%%
+flowchart LR
+    U["用户指令"] --> P["Plan\n拆解步骤"]
+    P --> E["Execute\n工具调用"]
+    E --> D{"标记 done？"}
+    D -- 否，继续编辑 --> E
+    D -- 是 --> R["Render\n真实 Word/Excel 导出 PDF→PNG"]
+    R --> V{"Verify\n独立无状态视觉裁决"}
+    V -- 通过 --> BL["Baseline 前移（ratchet）"]:::pass
+    BL --> P
+    V -- 失败 --> SIG["失败签名归一化"]:::block
+    SIG --> LAD{"升级梯"}
+    LAD -- 新签名，首次 --> E
+    LAD -- 同签名再现 --> SW["切换策略"]:::retry
+    SW --> E
+    LAD -- 仍失败 / 超限 --> AU["询问用户"]:::retry
+    AU --> P
+
+    classDef pass fill:#E3F5EA,stroke:#1E8E5A,color:#124D33,stroke-width:1.5px;
+    classDef retry fill:#FCEFD8,stroke:#B8790A,color:#6B4708,stroke-width:1.5px;
+    classDef block fill:#FBE7E5,stroke:#C4362E,color:#7A211B,stroke-width:1.5px;
+        </pre>
+      </div>
+      <div class="legend">
+        <span><i class="pass"></i>通过 / baseline 前移</span>
+        <span><i class="retry"></i>换策略 / 问用户</span>
+        <span><i class="block"></i>失败签名归一化</span>
+      </div>
+
+      <p style="font-size:14.5px;color:var(--ink-muted)">
+        这里最容易被面试问倒的一个细节：diff 到底是跟"上一次渲染"比，还是跟"上一次<b style="color:var(--ink)">验证通过</b>的渲染"比？
+        答案是后者——<code>Renderer</code> 同时维护 <code>previous</code>（每次 render() 都会覆盖）和 <code>baseline</code>
+        （只有 <code>verify_edit()</code> 返回 <code>passed=True</code> 之后 agent loop 才会推进它）两个指针。下面是这个"棘轮"关系：
+      </p>
+
+      <div class="ratchet">
+        <div class="rblock"><div class="rtrack prev" style="left:0;right:-34px"></div><div class="k">Open</div><div class="v">打开文档</div></div>
+        <div class="rarrow">→</div>
+        <div class="rblock"><div class="rtrack prev" style="left:-34px;right:-34px"></div><div class="k">Render #1</div><div class="v">render_preview<br>（临时预览）</div></div>
+        <div class="rarrow">→</div>
+        <div class="rblock"><div class="rtrack prev" style="left:-34px;right:-34px"></div><div class="k">Render #2</div><div class="v">又一次 preview<br><span style="color:var(--ink-faint)">不影响 baseline</span></div></div>
+        <div class="rarrow">→</div>
+        <div class="rblock passpt"><div class="rtrack base" style="left:-34px;right:0"></div><div class="k">Render #3 → Verify PASS</div><div class="v">baseline 在此刻<br>才真正前移</div></div>
+      </div>
+      <p style="font-size:13px;color:var(--ink-faint);margin-top:-8px">
+        灰色线 = <code>previous</code>（每次渲染都移动）· 绿色线 = <code>baseline</code>（只在通过验证后前移）。
+        如果 diff 用的是 previous，模型可以在标记 done 前故意多调一次 render_preview，
+        让"新渲染 vs 刚才的渲染"没有差异，从而让一次真实的回归看起来像"没有变化"——这就是设计里称为
+        <b style="color:var(--ink)">"diff laundering"</b> 的攻击面，baseline 棘轮把它堵死了。
+      </p>
+    </section>
+
+    <!-- ============ ESCALATION ============ -->
+    <section id="escalation" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">ANTI BRUTE-FORCE // 反暴力升级梯</div>
+        <h2>同一类失败，两次就必须换打法</h2>
+        <p class="section-sub">
+          <code>agent/budget.py</code> 把任何自由文本的工具报错或验证失败，先归一化成 6 类粗粒度签名之一
+          （<code>no_match / out_of_range / invalid_args / verify_text / verify_style / verify_layout</code> + other），
+          再决定要不要升级。工具报错和视觉验证失败共用同一套签名空间和同一个 StepBudget。
+        </p>
+      </div>
+
+      <div class="sheet">
+        <div class="cap">FIG.3 — 单步的升级状态机</div>
+        <pre class="mermaid">
+%%{init: {'theme':'base','themeVariables': {'background':'#EFF2F7','primaryColor':'#FFFFFF','primaryTextColor':'#131A26','primaryBorderColor':'#2454B8','lineColor':'#1D3A73','fontFamily':'monospace','fontSize':'13px'}}}%%
+stateDiagram-v2
+    [*] --> Attempt
+    Attempt --> Attempt: 新签名，首次出现
+    Attempt --> Done: 独立视觉验证通过
+    Attempt --> SwitchStrategy: 同一签名连续出现
+    SwitchStrategy --> Attempt: 换策略后重试
+    SwitchStrategy --> AskUser: 换策略后仍是同一签名
+    Attempt --> AskUser: 达到 max_attempts_per_step
+    AskUser --> Attempt: 用户选"换个方式再试"
+    AskUser --> Blocked: 用户选"跳过该步骤"
+    AskUser --> Aborted: 用户选"中止"／已问满 2 次自动中止
+    Done --> [*]
+    Blocked --> [*]
+    Aborted --> [*]
+        </pre>
+      </div>
+
+      <div class="mech" style="margin-top:24px">
+        <div class="mech-top"><h3>关键代码：一次失败到底走哪条分支</h3><span class="fchip">agent/budget.py:99-118</span></div>
+        <pre>def record_failure(self, step_index: int, signature: str) -> Action:
+    budget = self.step(step_index)
+    budget.attempts += 1
+    budget.signatures.append(signature)
+
+    if budget.attempts >= self.limits.max_attempts_per_step:
+        return Action.ASK_USER
+    if budget.strategy_switched and signature == budget.switched_signature:
+        # 这一类失败已经切换过策略、还是同样失败——
+        # 换一个全新签名会拿到自己独立的一轮升级梯，而不会继承这次的升级状态
+        return Action.ASK_USER
+    recent = budget.signatures[-self.limits.same_error_strategy_switch:]
+    if len(recent) == self.limits.same_error_strategy_switch and len(set(recent)) == 1:
+        budget.strategy_switched = True
+        budget.switched_signature = signature
+        return Action.SWITCH_STRATEGY</pre>
+        <div class="why">为什么这样设计：不同单元格地址、不同缺失的词——自由文本错误每次都不一样，精确字符串匹配永远发现不了"这是同一类错"。归一化成签名之后，"同一类失败连续出现"才第一次变成一个可以被代码判断的条件。</div>
+      </div>
+    </section>
+
+    <!-- ============ MECHANISMS ============ -->
+    <section id="mechanisms" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">KEY MECHANISMS // 关键机制</div>
+        <h2>9 个真正"耐问"的设计细节</h2>
+        <p class="section-sub">每张卡片：机制 → 代码 → 为什么存在 → 面试里怎么讲这一点。</p>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>1 · 独立无状态视觉验证器，失败即拒绝通过</h3><span class="fchip">agent/verifier.py:1-6, 104-141</span></div>
+        <p><code>verify_edit()</code> 是一次独立的一次性 LLM 调用，只拿到步骤意图 + 操作摘要 + 改动前后的图片——<b style="color:var(--ink)">从不看执行者的对话历史或它自称的"成功"</b>。<code>tool_choice</code> 被强制指向 <code>report_verification</code>；连续两次解析不出裁决结构，直接返回 <code>passed=False, severity=blocking</code>，而不是默认放行。</p>
+        <div class="why">如果验证器读到执行者的自夸叙述，判断会被那段叙述"锚定"而倾向盖章通过。失败关闭（fail-closed）意味着一次 LLM API 抖动永远不可能被误判成"验证通过"——它只会多花一轮升级梯。</div>
+        <div class="angle"><b>面试话术</b>真正的 actor / critic 分离：改文档的模型永远不给自己判卷，而判卷的模型一旦坏了，默认结果是"重做"，不是"放行"。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>2 · Baseline 棘轮：diff 永远对着"上次验证通过"的状态</h3><span class="fchip">agent/loop.py:583-633 · render/renderer.py:24-28</span></div>
+        <p><code>Renderer</code> 维护两个指针：<code>previous</code>（每次渲染都覆盖）和 <code>baseline</code>（只在 <code>verify_edit</code> 返回通过后，由 agent loop 显式推进）。<code>_verify_doc</code> 永远对 <code>baseline</code> 做 diff，不是对 <code>previous</code>。</p>
+        <div class="why">如果 diff 基准是 previous，模型可以在标记 done 前先调一次无意义的 render_preview，让下一次真正的验证 diff 出来的差异被"稀释"到接近于零——一次真实的回归可以藏在一次"无变化"的预览背后。基线锚定把这条路堵死。</div>
+        <div class="angle"><b>面试话术</b>正确性的参照系是一个只会前进的棘轮，不是一个随便移动的指针——和 git bisect 的 good/bad 边界是同一个思路。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>3 · 用户的决定，用代码强制生效，而不是"告诉模型"</h3><span class="fchip">agent/loop.py:481-531</span></div>
+        <p>当升级到 <code>ASK_USER</code>，harness 直接弹出固定的多选题（换个方式再试 / 跳过 / 中止），然后<b style="color:var(--ink)">解析用户的回答文本，直接修改 session 状态</b>——<code>abort_requested=True</code>、<code>plan.set_status(...,'blocked')</code>、或 <code>step_budget.refresh_ladder()</code>——而不是把结果当成一条 tool_result 期待模型自己去理解和服从。每步最多问 2 次，超了自动中止。</p>
+        <div class="why">模型读到"用户说跳过，请照办"仍然只是一条建议，它下一轮完全可能忽略或误读。把效果直接写死在 Python 里，才能保证用户的选择无论模型接下来做什么都真正生效。</div>
+        <div class="angle"><b>面试话术</b>回答"你怎么保证 agent 真的服从用户的干预"这个问题的标准答案：决策效果通过直接改变会话状态来强制执行，不是寄希望于模型正确读懂一条工具结果。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>4 · tool_use / tool_result 配对，在中止和内部崩溃下都不能破</h3><span class="fchip">agent/loop.py:160-221</span></div>
+        <p>一旦 <code>abort_requested</code> 置位，同一批里剩下的每个 <code>tool_use</code> 仍然会拿到一个合成的错误 <code>tool_result</code>（"排队中的调用未执行"），而不是被直接丢弃；<code>_handle_tool</code> 又用一层 <code>except Exception</code> 把任何内部 bug 转成同样形状的错误信封。</p>
+        <div class="why">Anthropic Messages API 要求下一轮 user 消息里，每个 tool_use 必须严格对应一个 tool_result——少一个就是格式错误的请求，整个会话上下文作废。这个不变式针对"用户中止"和"内部代码 bug"两种触发源，被<b style="color:var(--ink)">独立地各加固了一次</b>。</div>
+        <div class="angle"><b>面试话术</b>同一个 API 不变式被两条完全不同的失败路径分别兜住——说明这两类失败是被分开推演过的，不是"加一个 try/except 糊住所有情况"。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>5 · 两道相互独立的保存同意闸门，复用同一条异常通路</h3><span class="fchip">core/session.py:35-40, 261-287</span></div>
+        <p><code>save_to()</code> 对"覆盖原文件 / 覆盖任何已存在的其他文件"和"静默丢失 Excel 保真度"分别抛出两种不同的异常：普通 <code>PermissionError</code> 与 <code>FidelityLossError</code>。后者<b style="color:var(--ink)">刻意继承</b> <code>PermissionError</code>，这样它能不做任何改动就流经 <code>ToolRegistry.dispatch</code> 已有的捕获元组。</p>
+        <div class="why">"覆盖文件"和"静默丢内容"是两种性质不同的风险，理应各自可审计、各自需要单独同意，而不是合并成一个笼统的 force 开关。新增的安全闸门通过挑选一个恰当的基类，零改动地接入了已有的错误处理管线。</div>
+        <div class="angle"><b>面试话术</b>回答"怎么在不扩大公共代码爆炸半径的前提下加一道新的安全闸门"——答案是让新异常的基类恰好命中现有的 catch 元组，而不是去改调度器。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>6 · 零弹窗 macOS Office 自动化：双层超时 + 错误分类器 + 全局锁</h3><span class="fchip">render/applescript.py:16-18, 37-75, 85-136</span></div>
+        <p>每次导出都跑在 AppleScript 自身的 <code>timeout</code> 块<b>和</b>外层 <code>subprocess</code> timeout（多 5 秒）双重保护下；stderr 被模式匹配进一个类型化异常体系（<code>AutomationDenied / RenderTimeout / DocumentCorrupted</code>）；一把进程级全局锁串行化所有 Word/Excel 脚本调用（因为 <code>active document</code> 这类引用在并发脚本间是有歧义的）；App 永远不会被 <code>activate</code>；导出前先删掉可能存在的旧 PDF 以绕开覆盖确认框。</p>
+        <div class="why">无人值守的文档自动化极易"隐形挂起"（权限弹窗、覆盖确认），这是普通 Python 异常模型完全观察不到的失败类别。模块自己的 docstring 就是这份设计规格，每条不变式都能对应到文件里的一行具体代码。</div>
+        <div class="angle"><b>面试话术</b>整个项目里"系统工程而不只是 prompt 工程"证据最硬的一块——能准确说出 -1712 / -1743 这些 AppleScript 错误码分别代表什么、为什么修复方式不是简单 try/except。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>7 · Excel 保真度守卫：用"部件清单 diff"取代被证伪的启发式</h3><span class="fchip">core/session.py:43-89, 165-185, 279-287</span></div>
+        <p><code>_zip_inventory()</code> 只读 zip 的中央目录（不解压），对比原文件和试序列化后的工作副本，任何在基线里出现、保存时却消失的成员都会被按 OOXML 部件家族分类并<b style="color:var(--ink)">拦下保存</b>，除非显式传入 <code>accept_fidelity_loss=True</code>。这替换了此项目早期"按子串/图表名匹配"的启发式——那个启发式被自己的测试证明会在自己生成的图表上误报。</p>
+        <div class="why">openpyxl 对它对象模型不认识的任何部件都会静默丢弃；一个基于"部件名字是否还在"的结构性 diff 能通用地抓住这一类问题，不需要针对每种新特性写解析逻辑，也天然避开了"按大小 diff 一定会全量误报"的陷阱（哪怕无损往返，字节大小也会变）。</div>
+        <div class="angle"><b>面试话术</b>一个完整的自我纠错故事：上线一个启发式 → 被自己的测试证明在一个具体场景下是错的 → 换成一个经过假阳性和真阳性双重测试验证的机械不变量。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>8 · TCC 沙盒容器：把工作副本放进 App 自己的容器里</h3><span class="fchip">core/session.py:91-129</span></div>
+        <p><code>work_root_for()</code> 默认把会话工作目录放进 <code>~/Library/Containers/com.microsoft.{Word,Excel}/...</code>；而<b style="color:var(--ink)">检查这个容器能不能访问</b>这件事本身，在没有 TCC 授权的情况下会直接<b>挂起</b>而不是抛异常——所以探测代码把它包进一个带 3 秒硬超时的子进程（<code>/bin/ls</code>），而不是直接在主进程里做文件系统调用。</p>
+        <div class="why">App 对自己的容器本来就有权限，把工作副本放进去就永远不会触发权限弹窗；用可被杀死的子进程去做探测，能在探测本身就可能挂起的情况下优雅降级到备用目录，而不是冻结整个会话。</div>
+        <div class="angle"><b>面试话术</b>"挂起"和"异常"是两种完全不同的失败模式——异常能 catch，挂起只能用超时从外部拦腰斩断,这是很多人不会主动想到的一层。</div>
+      </div>
+
+      <div class="mech">
+        <div class="mech-top"><h3>9 · FakeLLM：签名对齐到位、失败就大声报错的离线测试替身</h3><span class="fchip">tests/fake_llm.py:34-57</span></div>
+        <p><code>FakeLLM.create</code> 的参数签名（<code>system, messages, tools, tool_choice, max_tokens</code>）和真实客户端完全一致，<code>AgentSession</code> 和独立验证器都无法分辨；被强制 <code>tool_choice</code> 指向 <code>report_verification</code> 的调用会被路由进单独的 <code>verify_script</code> 队列；脚本耗尽或出现没预期到的调用，直接 <code>AssertionError</code>，绝不返回一个"看起来还算合理"的默认值。</p>
+        <div class="why">让整条控制流——计划、工具执行、升级梯、预算耗尽、保存闸门、验证→修复——可以在零网络依赖下被确定性地跑一遍;而"大声失败"意味着测试脚本和真实 harness 行为一旦不匹配,会在当场就暴露,而不是在后面几步之后变成一个难以定位的诡异失败。</div>
+        <div class="angle"><b>面试话术</b>直接回答"你怎么在没有真实 LLM 的情况下测试一个 agent"——让替身精确匹配调用签名，让它坏得响亮而不是坏得含糊。</div>
+      </div>
+    </section>
+
+    <!-- ============ DECISIONS ============ -->
+    <section id="decisions" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">TRADEOFFS // 设计决策与权衡</div>
+        <h2>每个决定，都对应一个被放弃的替代方案</h2>
+        <p class="section-sub">按 情境 → 决定 → 权衡 → 结果 的结构整理，方便被追问"为什么不这样做"时直接引用。</p>
+      </div>
+
+      <div class="decisions">
+        <div class="decision">
+          <div class="grid">
+            <div class="lab">情境</div><div class="val">工具报错、和"调用成功但视觉上错了"，是两种性质不同的失败。</div>
+            <div class="lab">决定</div><div class="val"><b>让它们共用同一套签名归一化 + 升级梯</b>，同一个 StepBudget、同一个签名空间。</div>
+            <div class="lab">权衡</div><div class="val tradeoff">一个 verify_style 失败理论上可能和同一步里一个不相关的 invalid_args 报错共用同一个尝试次数上限。</div>
+            <div class="lab">结果</div><div class="val result">用一套机制同时覆盖"工具级"和"视觉验证级"两类无效循环，而不是维护两套反暴力逻辑。</div>
+          </div>
+        </div>
+        <div class="decision">
+          <div class="grid">
+            <div class="lab">情境</div><div class="val">每次视觉验证都要付出一次真实渲染 + 一次额外 LLM 调用的代价。</div>
+            <div class="lab">决定</div><div class="val">对 <code>NON_VISUAL_TOOLS = {excel_write_cells, excel_edit_formula}</code> <b>整体跳过</b>视觉验证。</div>
+            <div class="lab">权衡</div><div class="val tradeoff">正确性依赖这份白名单保持准确——未来一个"看似非视觉"却实际影响排版的工具，会悄悄绕过验证，除非有人记得同步这份清单。</div>
+            <div class="lab">结果</div><div class="val result">纯数据编辑省下真实、可观的成本和延迟。</div>
+          </div>
+        </div>
+        <div class="decision">
+          <div class="grid">
+            <div class="lab">情境</div><div class="val"><code>ask_user</code> 升级后，决定必须真正生效，不能只是"模型看得到"。</div>
+            <div class="lab">决定</div><div class="val">对用户选择的答案文本做<b>硬编码前缀解析</b>，直接改 <code>abort_requested</code> / plan 状态 / 预算，而不是让模型自己解读。</div>
+            <div class="lab">权衡</div><div class="val tradeoff">控制流耦合到 UI 选项文案的具体前缀——如果未来改了选项措辞却没同步这里的解析，强制生效会静默失效。</div>
+            <div class="lab">结果</div><div class="val result">用户的中止/跳过决定，无论模型接下来做什么，都能确定性生效；每步最多问 2 次自动中止。</div>
+          </div>
+        </div>
+        <div class="decision">
+          <div class="grid">
+            <div class="lab">情境</div><div class="val">上线的 Excel 数据丢失启发式（子串/图表名匹配）被自己的测试证明会假阳性——在自己生成的图表上误报。</div>
+            <div class="lab">决定</div><div class="val">换成<b>加载 → 试序列化 → zip 部件清单 diff</b>，只按"部件名字是否还在"判断，绝不按大小判断，一次性算好，保存时拦截。</div>
+            <div class="lab">权衡</div><div class="val tradeoff">每次打开文档多付出一次整表试序列化的开销，在 2 万行规模下的延迟在上线时被明确标注为"尚未做过基准测试"。</div>
+            <div class="lab">结果</div><div class="val result">已上线（commit 9f7a5b5），假阳性回归测试和真阳性阻断测试同时通过。</div>
+          </div>
+        </div>
+        <div class="decision">
+          <div class="grid">
+            <div class="lab">情境</div><div class="val">在目标 App 自己的沙盒容器之外自动化渲染文档，会触发 macOS TCC 权限弹窗；连"检查容器能不能读"本身都可能挂起而不是报错。</div>
+            <div class="lab">决定</div><div class="val">默认把工作副本<b>放进目标 App 自己的容器</b>，并用带 3 秒硬超时的子进程去探测可访问性，而不是直接在主进程里做文件系统检查。</div>
+            <div class="lab">权衡</div><div class="val tradeoff">渲染子系统被绑死在一条 macOS 专属、按 App 区分的沙盒路径上，而不是一个可移植的通用临时目录；每个会话多一次整文件拷贝。</div>
+            <div class="lab">结果</div><div class="val result">零弹窗自动化不变式，被 <code>office-agent doctor</code> 里一次真实的端到端渲染冒烟测试持续验证。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CHALLENGES ============ -->
+    <section id="challenges" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">BUG JOURNAL // 踩坑与修复</div>
+        <h2>四个"具体到能讲成故事"的坑</h2>
+      </div>
+      <div class="risk-grid">
+        <div class="risk"><span class="tag" style="color:var(--blueprint);border-color:var(--blueprint);background:var(--blueprint-tint)">结构性腐化</span>
+          <p><b>Word "链接到上一节" 的页眉/页脚共享同一段 XML。</b>直接编辑会静默改写更早页面的内容。选择器解析器检测 <code>is_linked_to_previous</code>，往前回溯找到真正拥有这段定义的 section，抛出命名了正确 owner 的 <code>SelectorError</code>，而不是悄悄返回共享的段落。<span class="mono" style="display:block;margin-top:6px;color:var(--ink-faint)">selector_parser.py:112-133</span></p>
+        </div>
+        <div class="risk"><span class="tag" style="color:var(--blueprint);border-color:var(--blueprint);background:var(--blueprint-tint)">重复元素</span>
+          <p><b>模型插错一个元素后，习惯用"再插一个对的"去补救</b>而不是删掉错的，最后留下重复内容。<code>word_delete_element</code> / <code>excel_delete_chart</code> 的工具描述里直接写明"用删除或 undo，绝不要再插一次"——用发给模型的文案本身当护栏。<span class="mono" style="display:block;margin-top:6px;color:var(--ink-faint)">word_tools.py:182-184 · excel_tools.py:192-195</span></p>
+        </div>
+        <div class="risk"><span class="tag" style="color:var(--blueprint);border-color:var(--blueprint);background:var(--blueprint-tint)">Flaky 插入</span>
+          <p><b>LLM 经常把嵌套数组序列化成 JSON 字符串，或把一行内容漏套一层。</b><code>insert_element</code> 先尝试 <code>json.loads</code> 并在结果是 list 时采用，再把一个未嵌套的扁平列表当成"一行"，两步归一化之后才报出带示例的错误——直接杀掉了一整类"同样报错连跳 6 次"的插入失败。<span class="mono" style="display:block;margin-top:6px;color:var(--ink-faint)">word_adapter.py:300-332 · commit 36fe8d5</span></p>
+        </div>
+        <div class="risk"><span class="tag" style="color:var(--blueprint);border-color:var(--blueprint);background:var(--blueprint-tint)">容器挂起</span>
+          <p><b>macOS 沙盒保护会让某些系统调用挂起而不是抛异常。</b><code>work_root_for</code> 默认把工作副本放进 App 自己的容器，<code>_dir_accessible</code> 改用带 3 秒超时的子进程探测可访问性，探测本身超时就优雅降级到备用根目录。<span class="mono" style="display:block;margin-top:6px;color:var(--ink-faint)">core/session.py:91-129 · commit 9f7a5b5「container-hang robustness」</span></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TIMELINE ============ -->
+    <section id="timeline" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">EVOLUTION // 工程演进</div>
+        <h2>从推翻重来，到两轮对抗性复审</h2>
+        <p class="section-sub">这条 git 历史本身就是"工程成熟度"的证据——不是一次性写完，而是有意识地被反复攻击、修复、再验证。</p>
+      </div>
+      <div class="timeline">
+        <div class="tl-item"><div class="commit">P0 – P4</div><h4>推翻旧的 LangChain 实现，改用 Anthropic SDK 直连 MiniMax-M3</h4><p>src 布局骨架 → 端口 core/adapters/schemas → 直接应用式工具层（registry + 自动快照 + 统一错误信封）→ 零弹窗渲染管线 → 带升级梯的完整 agent 主循环，MiniMax-M3 原生多模态 + 强制 tool_choice + 图片内嵌 tool_result 全部实测通过。</p></div>
+        <div class="tl-item"><div class="commit">P5 – P7</div><h4>Rich/questionary 终端 UX，doctor 自检，81 测试全绿</h4><p>真实端到端场景验证通过（Word 文字+样式、Excel 数据+图表），并配上有门槛的真实 LLM 冒烟测试（默认跳过，避免误跑花钱）。</p></div>
+        <div class="tl-item"><div class="commit">e155863</div><h4>对抗性多 agent 复审：24 项确认发现，全部修复</h4><p>一次专门针对 harness 自身控制逻辑的系统性复审，而不是等生产环境暴露 bug 才临时补丁。</p></div>
+        <div class="tl-item"><div class="commit">481b6b1 → ec99ccc → 22a0b3c</div><h4>每步熔断上线；13 场景实测战池驱动的 prompt 调优；验证器严重度校准</h4><p>60 页文档、多轮 REPL 连续性通过验证；不同意图场景池用来倒逼具体的工具/prompt 缺陷修复，而不是凭空猜测。</p></div>
+        <div class="tl-item"><div class="commit">5b69bbd</div><h4>第二轮对抗性复审：8 项确认发现，全部修复</h4><p>同一套"专门找茬"的复审流程，在第一轮之后又跑了一次——不是一次性动作，是可重复的质量闸门。</p></div>
+        <div class="tl-item"><div class="commit">36fe8d5</div><h4>Word 表格/单元格边框；office-agent gc；宽容表格内容解析</h4><p>杀掉一整类因 LLM 序列化怪癖导致的 flaky 插入失败；121 测试全绿，13 场景战池 12/13 首过。</p></div>
+        <div class="tl-item"><div class="commit">97292ba → d9295ef</div><h4>先诚实披露 Excel 图表/图片丢失的已知限制，再补上三份实证设计文档</h4><p>没有掩盖已知的 openpyxl 局限，而是先让用户知情，再拿出经过真实探针验证的扩展方案（native-ops router / fidelity guard / xml-patch）。</p></div>
+        <div class="tl-item"><div class="commit">9f7a5b5</div><h4>Excel 保真度守卫真正上线，替换被证伪的旧启发式</h4><p>机械化的 zip 部件清单 diff 取代子串/图表名匹配；keep_vba / rich_text 在加载时无条件开启；沙盒容器挂起问题被加固；129 测试绿，1.3s。</p></div>
+      </div>
+    </section>
+
+    <!-- ============ TESTING ============ -->
+    <section id="testing" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">TEST DISCIPLINE // 测试与验证纪律</div>
+        <h2>怎么测试一个没有真实 LLM 的 agent</h2>
+      </div>
+      <ul class="clean-list">
+        <li><b>FakeLLM 精确对齐调用签名。</b>让 <code>AgentSession</code> 和独立验证器都分辨不出这是不是真实客户端，从而能把计划、执行、升级梯、预算耗尽、保存闸门、验证→修复整条控制流在零网络依赖下跑一遍。</li>
+        <li><b>验证器专用的独立脚本队列，耗尽即报错。</b>主循环脚本不需要预测验证调用具体在哪一步插入；一旦队列耗尽或来了没预期到的调用，直接 <code>AssertionError</code>，不会悄悄返回一个"看起来还行"的默认值。</li>
+        <li><b>精确计数断言，不是"真值/存在性"断言。</b>比如 <code>after.count('_SUFFIX') == 1</code>、<code>len(session.doc[sheet]._charts) == 1</code>——一个 truthy 检查即使某次编辑被误执行了两遍照样能通过，只有精确相等才能抓住"预览/应用被执行了两次"这类回归。</li>
+        <li><b>覆盖闸门测试直接断言原文件的字节没被动过。</b>而不是只检查函数返回值，验证的是"拒绝覆盖"这个安全边界的真实作用范围。</li>
+        <li><b>Excel 保真度守卫同时有假阳性回归测试和真阳性阻断测试。</b>前者覆盖 openpyxl 原生特性（图表、条件格式、表格、合并单元格）确认能无损往返，后者覆盖真正会被 openpyxl 丢弃的部件（线程批注、切片器缓存、自定义 XML）确认会被正确拦截。</li>
+        <li><b>doctor 自检跑的是真实端到端渲染路径,不是静态检查。</b>它要守护的具体失败模式——无人值守渲染时冒出权限弹窗——只有真的走一遍真实路径才能证明不存在;而且只会退出它自己为了自检而启动的 App 实例,绝不影响用户本来就开着的文档。</li>
+      </ul>
+    </section>
+
+    <!-- ============ FUTURE ============ -->
+    <section id="future" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">EXTENSIBILITY // 面向未来的设计</div>
+        <h2>三份"先探针、再设计"的扩展提案</h2>
+        <p class="section-sub">
+          这些还没有实现，但同样值得在面试里讲——它们展示的是系统设计判断力：怎么在 python-docx / openpyxl
+          的天花板之上继续扩展，而不破坏已有的安全模型和 render+verify 闭环。三份文档都遵循同一条纪律：
+          每个不明显的结论都要有一次真实探针（osascript 干跑、zip 手术、读已安装库源码）支撑，失败和成功一样被诚实记录。
+        </p>
+      </div>
+
+      <div class="doc-card">
+        <div class="eyebrow" style="margin-bottom:2px">DOCS/EDIT-LAYER-DESIGNS/ROUTER-NATIVE-OPS.MD</div>
+        <h4>Native-Ops Router —— 用一个封闭、手工验证过的 AppleScript 模板库，覆盖"整份文档级"操作</h4>
+        <p>比如接受/拒绝全部修订、更新全部域、重新计算工作簿——这些在 python-docx/openpyxl 里根本没有对应模型。执行序列固定为
+          <code>flush → 快照 → 跑模板 → 失败回滚 / 成功后 reload</code>。设计里把候选能力分成两档：Tier-1 能安全 reload 回内存对象，
+          Tier-2（透视表刷新、工作表保护）被设计成"只在最终落盘时跑一次的收尾工序，绝不 reload 回活跃会话"——因为下一次 openpyxl 保存会静默把它刚修好的东西又冲掉。</p>
+        <div class="rejected"><b>明确拒绝的替代方案</b>——自由生成 AppleScript 脚本，或一个"受限 DSL"折中方案：AppleScript 的 <code>tell application</code>
+          能指向任意已安装的可脚本化应用，<code>do shell script</code> 能跑任意命令——这是一个跨应用、等同于 RCE 的攻击面，而不只是 docx 损坏风险,也会让失败签名归一化机制彻底失效（失败方式不可枚举）。</div>
+      </div>
+
+      <div class="doc-card">
+        <div class="eyebrow" style="margin-bottom:2px">DOCS/EDIT-LAYER-DESIGNS/EXCEL-FIDELITY-GUARD.MD</div>
+        <h4>已实现部分背后的完整推理：为什么按"部件名字"而不是"字节大小"判断丢失</h4>
+        <p>探针证明哪怕一次完全无损的往返，字节大小也几乎必然变化（空白、属性顺序）；按大小触发会在几乎每一次保存上都假阳性，
+          训练用户和 agent 一起学会无视这条警告——这正是旧启发式已经证明过的失败模式。<code>FidelityLossError</code> 继承
+          <code>PermissionError</code>，零改动接入已有的调度器捕获元组。</p>
+        <div class="rejected"><b>被否决的兜底方案</b>——发现丢失后自动切到原始 XML 解包/编辑/重打包管线：这条路只能解决"简单一半"的问题（单元格值、样式），
+          永远救不回图表/透视表/切片器这些真正重要的部分，还会引入第二条更难验证的写入路径,与"信任文件结构、靠真实渲染验证"的核心思路相悖。</div>
+      </div>
+
+      <div class="doc-card">
+        <div class="eyebrow" style="margin-bottom:2px">DOCS/EDIT-LAYER-DESIGNS/XML-PATCH-WORD.MD</div>
+        <h4>xml_query / xml_patch —— 直接在活的 python-docx lxml 树上做 XPath 级操作</h4>
+        <p>用来够到脚注、尾注、域、修订接受/拒绝这些结构化工具完全碰不到的内容。三层校验：片段是否 well-formed → 落盘后独立重新打开做探测性读取（任何异常整体回滚）
+          → 已有的真实渲染 + 独立多模态验证。<b>刻意不建一个完整的 XSD 模式校验层</b>——探针已经证实 lxml 和 python-docx 的 OPC 层完全不做模式校验，
+          而 Word 本身对至少一些模式非法的嵌套（比如 <code>&lt;w:tbl&gt;</code> 嵌在 <code>&lt;w:r&gt;</code> 里）也能零弹窗导出——"模式干净"不足以保证正确，
+          "模式脏"也不一定真的有害，render+verify 闭环才是真正的事实来源。</p>
+        <div class="rejected"><b>被否决的设计</b>——先解包 zip、编辑文件、再打包回去的独立流水线（类似某些 Anthropic skill / PPTArena 的模式）：
+          <code>doc.part.package</code> 已经给了完整的内存级访问，第二条流水线只会需要和活的内存对象保持同步，却拿不到相应的好处。</div>
+      </div>
+    </section>
+
+    <!-- ============ QA ============ -->
+    <section id="qa" class="section-gap">
+      <div class="section-head">
+        <div class="eyebrow">Q&amp;A REHEARSAL // 面试问答预案</div>
+        <h2>压轴：追问清单</h2>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="tag">Q1</span>你怎么防止 agent 自己给自己的作业打满分？</div>
+        <div class="a">独立、无状态的验证器只看步骤意图 + 渲染出的前后图片,完全看不到执行者的对话历史或它自称的"成功"——actor 和 critic 被物理分离。而且验证器解析失败时默认是 <code>passed=False</code>,不是默认放行。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q2</span>报错信息每次都长得不一样,你怎么判断"这是同一类失败"?</div>
+        <div class="a">先把自由文本归一化成 6 类粗粒度签名(no_match / out_of_range / invalid_args / verify_text / verify_style / verify_layout),再判断同一个签名是不是连续出现——这样不同单元格地址、不同缺失的词都能被识别成"同一类问题"。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q3</span>用户说"中止",你怎么保证 agent 真的停下来,而不是模型下一轮又继续?</div>
+        <div class="a">升级到 ASK_USER 之后,用户的答案不是作为一条 tool_result 交给模型自己解读,而是直接被 harness 解析并写进会话状态(abort_requested / plan 状态 / 预算),用代码强制生效。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q4</span>为什么不能直接拿"上一次渲染"做 diff 基准?</div>
+        <div class="a">因为模型可以在标记 done 之前先调一次无意义的预览渲染,让"新渲染 vs 刚预览的渲染"没有差异,从而让一次真实的回归看起来像"什么都没变"。所以 diff 基准是<b>上一次验证通过</b>的渲染(baseline),只在验证通过后才前移,预览渲染永远不会移动它。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q5</span>用 AppleScript 自动化真实 Office App,最坑的地方是什么?</div>
+        <div class="a">不是报错,是"隐形挂起"——权限弹窗、覆盖确认框,甚至连"检查一个目录能不能读"这个系统调用本身,在没有 TCC 授权时都会直接挂起而不是抛异常。应对方式是双层超时(AppleScript 自身 timeout + 更长的外层 subprocess timeout)、把探测本身也包进带硬超时的子进程、以及把工作副本放进 App 自己的沙盒容器来从源头避免弹窗。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q6</span>Excel 数据丢失这个坑,是怎么被发现、又是怎么解决的?</div>
+        <div class="a">最早上线的是一个按子串/图表名匹配的启发式,后来被项目自己的测试证明会在自己生成的图表上误报——一个已知为错的检测方式。换成了"加载→试序列化→按 zip 部件名字 diff"的机械检查,明确只按"部件是否还在"判断、不按字节大小判断(因为哪怕无损往返大小也会变),保存前默认拦截,需要显式同意才能继续。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q7</span>没有真实 LLM,你怎么测试整条 agent 控制流?</div>
+        <div class="a">写一个 FakeLLM,参数签名和真实客户端完全一致,agent loop 和验证器都分辨不出区别;验证调用被单独路由到一个 verify_script 队列;一旦脚本耗尽或来了没预期到的调用,直接 AssertionError——失败要失败得响亮,不能悄悄返回一个看起来合理的默认值。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q8</span>如果要扩展到修订记录、脚注这些 python-docx 完全碰不到的内容,你会怎么设计?</div>
+        <div class="a">加两个新工具 xml_query / xml_patch,直接在活的 lxml 树上做 XPath 级操作,三层校验(片段合法性 → 落盘后独立重新打开探测 → 已有的真实渲染+验证闭环),刻意不建完整的 XSD 校验层——因为已经用真实探针证实了"模式干净"不等于正确、"模式脏"也不一定有害,render+verify 才是唯一的事实来源。</div>
+      </div>
+      <div class="qa">
+        <div class="q"><span class="tag">Q9</span>为什么不干脆做一个能跑任意 AppleScript 的通用工具,岂不是更灵活?</div>
+        <div class="a">因为 AppleScript 的 tell application 能指向任何已安装的可脚本化应用,do shell script 能跑任意命令——那是一个跨应用、等同于任意代码执行的攻击面,而不只是文档损坏的风险,而且会让失败签名归一化彻底失效,因为失败方式变得不可枚举。所以选择的是一个封闭、每条都手工验证过的模板库,新能力要先有真实 osascript 干跑记录才能合入。</div>
+      </div>
+    </section>
+
+    <!-- ============ FOOTER ============ -->
+    <footer id="stack" class="section-gap">
+      <div class="eyebrow">STACK &amp; KNOWN LIMITS</div>
+      <div class="stack" style="margin-bottom:20px">
+        <span>Anthropic SDK → MiniMax-M3</span><span>pydantic</span><span>python-docx</span><span>openpyxl</span>
+        <span>PyMuPDF</span><span>numpy</span><span>Pillow</span><span>AppleScript / osascript</span>
+        <span>Typer</span><span>Rich</span><span>questionary</span><span>pytest</span>
+      </div>
+      <p style="max-width:66ch">
+        已知限制(诚实披露,不是藏起来): 打开本就带图表/图片的 .xlsx 再保存会丢失它们(openpyxl 读取器不解析,已被保真度守卫检测并拦截);
+        Excel 图表样式较朴素;Word 修订/批注/脚注/TOC 域重算等高级特性尚未支持(即上面 xml-patch 设计文档要解决的);
+        Word 渲染首次冷启动 1-2 分钟,会话内温启动约 0.6 秒。v0.2.0,本地个人项目,尚未推送到远程仓库。
+      </p>
+    </footer>
+  </main>
+</div>
+
+<script>
+  (function(){
+    var savedTheme = null;
+    try { savedTheme = localStorage.getItem('theme'); } catch(e) {}
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+  })();
+</script>

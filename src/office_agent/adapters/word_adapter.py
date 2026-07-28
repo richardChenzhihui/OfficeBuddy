@@ -15,8 +15,56 @@ _ALIGNMENT_MAP = {
 }
 
 
+def _set_east_asian_font(run: Any, name: str) -> None:
+    """Sets w:rFonts/@w:eastAsia -- the attribute Word actually consults to
+    pick a glyph font for CJK text. python-docx's `run.font.name` only ever
+    writes @w:ascii/@w:hAnsi (the Latin-script font slots); leaving
+    @w:eastAsia unset makes Word guess a CJK font per character at PDF-export
+    time. Confirmed empirically: Word then inconsistently alternates between
+    two different fallback fonts (e.g. MS Mincho / Microsoft YaHei) within a
+    single run, which renders as seemingly-random bolding."""
+    from docx.oxml.ns import qn
+    from docx.oxml.parser import OxmlElement
+
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        rpr.insert(0, rfonts)
+    rfonts.set(qn("w:eastAsia"), name)
+
+
+def _east_asian_font(run: Any) -> Optional[str]:
+    from docx.oxml.ns import qn
+
+    rpr = run._element.rPr
+    if rpr is None:
+        return None
+    rfonts = rpr.find(qn("w:rFonts"))
+    return rfonts.get(qn("w:eastAsia")) if rfonts is not None else None
+
+
+def _dominant_document_font(doc: Any) -> Optional[str]:
+    """Best-effort: the first explicitly-set font anywhere in the document's
+    body paragraphs, so newly-inserted content (a fresh table, a new
+    paragraph) matches whatever font the rest of the document already uses
+    instead of leaving @w:eastAsia unset on brand-new runs. Returns None if
+    the document itself has no font pinned anywhere -- we don't invent one."""
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            name = _east_asian_font(run) or run.font.name
+            if name:
+                return name
+    return None
+
+
 def _copy_run_format(src: Any, dst: Any) -> None:
-    dst.font.name = src.font.name
+    ascii_name = src.font.name
+    if ascii_name:
+        dst.font.name = ascii_name
+    east_asian_name = _east_asian_font(src) or ascii_name
+    if east_asian_name:
+        _set_east_asian_font(dst, east_asian_name)
     if src.font.size:
         dst.font.size = src.font.size
     dst.font.bold = src.font.bold
@@ -282,6 +330,7 @@ class WordAdapter:
         font = run.font
         if style.font_name:
             font.name = style.font_name
+            _set_east_asian_font(run, style.font_name)
         if style.font_size:
             font.size = Pt(style.font_size)
         if style.bold is not None:
@@ -343,9 +392,18 @@ class WordAdapter:
                 table.style = "Table Grid"  # visible borders by default
             except KeyError:
                 pass  # style absent from this document's template
+            # New cells get a fresh run with no font at all; match whatever
+            # font the rest of the document already uses so the new table
+            # doesn't get Word's inconsistent per-glyph CJK font fallback.
+            font_name = _dominant_document_font(doc)
             for i, row_data in enumerate(content):
                 for j, cell_data in enumerate(row_data):
-                    table.rows[i].cells[j].text = str(cell_data)
+                    cell = table.rows[i].cells[j]
+                    cell.text = str(cell_data)
+                    if font_name and cell.paragraphs[0].runs:
+                        run = cell.paragraphs[0].runs[0]
+                        run.font.name = run.font.name or font_name
+                        _set_east_asian_font(run, font_name)
             if position is not None:
                 # Insert BEFORE the position paragraph — same semantics as
                 # element_type='paragraph'.
@@ -359,9 +417,14 @@ class WordAdapter:
                         f"Insert position {position} out of range: "
                         f"document has {len(doc.paragraphs)} paragraphs."
                     )
-                doc.paragraphs[position].insert_paragraph_before(str(content))
+                new_para = doc.paragraphs[position].insert_paragraph_before(str(content))
             else:
-                doc.add_paragraph(str(content))
+                new_para = doc.add_paragraph(str(content))
+            font_name = _dominant_document_font(doc)
+            if font_name and new_para.runs:
+                run = new_para.runs[0]
+                run.font.name = run.font.name or font_name
+                _set_east_asian_font(run, font_name)
             return {"element_type": "paragraph", "text": str(content)[:50]}
 
         if element_type == "page_break":

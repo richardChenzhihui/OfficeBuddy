@@ -1,0 +1,17 @@
+[
+  {
+    "index": 0,
+    "description": "Format the title \"季度工作总结\": bold, 24pt font size, center alignment",
+    "status": "done"
+  },
+  {
+    "index": 1,
+    "description": "Insert a 2-row × 3-column table at the end with headers \"任务、负责人、状态\" and one example data row",
+    "status": "done"
+  },
+  {
+    "index": 2,
+    "description": "Apply black solid borders to the entire table",
+    "status": "done"
+  }
+]

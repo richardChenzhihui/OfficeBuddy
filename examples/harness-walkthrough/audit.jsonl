@@ -1,0 +1,6 @@
+{"ts": 1785251846.120147, "event": "get_structure", "input": {"doc_id": "0d37e71b"}, "result_keys": ["doc_type", "paragraphs", "sections", "success", "tables"]}
+{"ts": 1785251852.9744651, "event": "word_edit_style", "input": {"doc_id": "0d37e71b", "selector": {"contains": "季度工作总结", "occurrence": "first", "type": "text_match"}, "style_params": {"alignment": "center", "bold": true, "font_size": 24}}, "result_keys": ["affected", "matched_count", "success"]}
+{"ts": 1785251861.021734, "event": "word_insert_element", "input": {"content": [["任务", "负责人", "状态"], ["完成季度报告撰写", "张三", "进行中"]], "doc_id": "0d37e71b", "element_type": "table"}, "result_keys": ["cols", "element_type", "rows", "success"]}
+{"ts": 1785251870.8463192, "event": "get_structure", "input": {"doc_id": "0d37e71b"}, "result_keys": ["doc_type", "paragraphs", "sections", "success", "tables"]}
+{"ts": 1785251873.173654, "event": "word_edit_style", "input": {"doc_id": "0d37e71b", "selector": {"table_index": 0, "type": "table"}, "style_params": {"border": {"color": "#000000", "size": 0.5, "style": "single"}}}, "result_keys": ["affected", "matched_count", "success"]}
+{"ts": 1785251881.257473, "event": "save_document", "input": {"doc_id": "0d37e71b"}, "result_keys": ["saved_path", "success"]}

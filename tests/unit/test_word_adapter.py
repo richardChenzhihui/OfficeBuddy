@@ -109,3 +109,51 @@ def test_insert_element_table(doc):
 def test_insert_element_bad_type_raises(doc):
     with pytest.raises(ValueError, match="Unsupported element type"):
         WordAdapter.insert_element(doc, None, "image", "x")
+
+
+def _east_asian_font(run):
+    from docx.oxml.ns import qn
+
+    rpr = run._element.rPr
+    if rpr is None:
+        return None
+    rfonts = rpr.find(qn("w:rFonts"))
+    return rfonts.get(qn("w:eastAsia")) if rfonts is not None else None
+
+
+def test_apply_style_font_name_sets_east_asian_font(doc):
+    """Regression: python-docx's font.name only ever writes w:ascii/w:hAnsi;
+    CJK glyphs render via the separate w:eastAsia attribute, so a requested
+    font change would otherwise be silently invisible for Chinese text."""
+    WordAdapter.apply_style([doc.paragraphs[0]], StyleParams(font_name="SimSun"))
+    assert all(_east_asian_font(r) == "SimSun" for r in doc.paragraphs[0].runs)
+
+
+def test_insert_preserves_east_asian_font(doc):
+    para = doc.paragraphs[0]
+    WordAdapter.apply_style([para], StyleParams(font_name="SimSun"))
+    WordAdapter.edit_text([para], TextOperation.INSERT, "前缀")
+    assert _east_asian_font(para.runs[0]) == "SimSun"  # the prepended run
+
+
+def test_insert_element_table_inherits_document_font(doc):
+    """New table cells get a fresh run with no font at all; they must match
+    whatever font the rest of the document already uses, or Word's own
+    per-glyph CJK font fallback renders as seemingly-random bolding."""
+    WordAdapter.apply_style([doc.paragraphs[0]], StyleParams(font_name="SimSun"))
+    WordAdapter.insert_element(doc, None, "table", [["表头"]])
+    cell_run = doc.tables[-1].rows[0].cells[0].paragraphs[0].runs[0]
+    assert _east_asian_font(cell_run) == "SimSun"
+
+
+def test_insert_element_table_no_font_invented_when_document_has_none(doc):
+    """If nothing in the document has an explicit font, don't invent one."""
+    WordAdapter.insert_element(doc, None, "table", [["x"]])
+    cell_run = doc.tables[-1].rows[0].cells[0].paragraphs[0].runs[0]
+    assert _east_asian_font(cell_run) is None
+
+
+def test_insert_element_paragraph_inherits_document_font(doc):
+    WordAdapter.apply_style([doc.paragraphs[0]], StyleParams(font_name="SimSun"))
+    WordAdapter.insert_element(doc, None, "paragraph", "新段落")
+    assert _east_asian_font(doc.paragraphs[-1].runs[0]) == "SimSun"

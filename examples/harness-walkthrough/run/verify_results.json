@@ -1,0 +1,49 @@
+[
+  {
+    "step_description": "Format the title \"季度工作总结\": bold, 24pt font size, center alignment",
+    "operations_summary": "word_edit_style({\"doc_id\": \"0d37e71b\", \"selector\": {\"contains\": \"季度工作总结\", \"occurrence\": \"first\", \"type\": \"text_match\"}, \"style_params\": {\"alignment\": \"center\", \"bold\": true, \"font_size\": 24}})",
+    "after_pages_shown": [
+      0
+    ],
+    "before_pages_shown": [],
+    "extra_note": "",
+    "passed": true,
+    "confidence": 0.97,
+    "skipped": false,
+    "blocking": false,
+    "problems": [],
+    "summary": "Verification PASSED (confidence 0.97)."
+  },
+  {
+    "step_description": "Insert a 2-row × 3-column table at the end with headers \"任务、负责人、状态\" and one example data row",
+    "operations_summary": "word_insert_element({\"content\": [[\"任务\", \"负责人\", \"状态\"], [\"完成季度报告撰写\", \"张三\", \"进行中\"]], \"doc_id\": \"0d37e71b\", \"element_type\": \"table\"})",
+    "after_pages_shown": [
+      0
+    ],
+    "before_pages_shown": [
+      0
+    ],
+    "extra_note": "",
+    "passed": true,
+    "confidence": 0.97,
+    "skipped": false,
+    "blocking": false,
+    "problems": [],
+    "summary": "Verification PASSED (confidence 0.97)."
+  },
+  {
+    "step_description": "Apply black solid borders to the entire table",
+    "operations_summary": "word_edit_style({\"doc_id\": \"0d37e71b\", \"selector\": {\"table_index\": 0, \"type\": \"table\"}, \"style_params\": {\"border\": {\"color\": \"#000000\", \"size\": 0.5, \"style\": \"single\"}}})",
+    "after_pages_shown": [
+      0
+    ],
+    "before_pages_shown": [],
+    "extra_note": "NOTE: pixel diff detected NO visible change since the last verified render, despite edits being applied. Check carefully whether the intended change is actually present.",
+    "passed": true,
+    "confidence": 0.95,
+    "skipped": false,
+    "blocking": false,
+    "problems": [],
+    "summary": "Verification PASSED (confidence 0.95)."
+  }
+]

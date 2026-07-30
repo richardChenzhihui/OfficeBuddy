@@ -587,9 +587,9 @@ it") must never be built. Argued explicitly, not just asserted:
 ## 4. Test plan
 
 Fixtures reused from the existing suite: `word_doc_path`/`excel_doc_path`
-(copy `test.docx`/`test.xlsx` into `tmp_path`, `tests/tools/
-test_direct_apply_no_double_exec.py`), `ctx` (`ToolContext()` +
-`close_all()` teardown).
+(generate a minimal `.docx`/`.xlsx` into `tmp_path`, see `tests/conftest.py`;
+used by e.g. `tests/tools/test_direct_apply_no_double_exec.py`), `ctx`
+(`ToolContext()` + `close_all()` teardown).
 
 **Unit — `tests/unit/test_session_snapshot.py` (extend)**
 - `reload_from_disk()` round-trip: write different bytes directly to

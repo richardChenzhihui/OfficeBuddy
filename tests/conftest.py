@@ -1,11 +1,8 @@
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Unit tests must never touch the Office app sandbox containers: on machines
 # without the TCC container-access grant the syscalls HANG (not error). Render
@@ -19,15 +16,25 @@ os.environ.setdefault(
 
 @pytest.fixture
 def word_doc_path(tmp_path):
-    src = REPO_ROOT / "test.docx"
+    """Minimal .docx fixture: a single Normal-styled paragraph, no run formatting."""
+    import docx
+
     dst = tmp_path / "test.docx"
-    shutil.copy2(src, dst)
+    doc = docx.Document()
+    doc.add_paragraph("测试段落")
+    doc.save(dst)
     return dst
 
 
 @pytest.fixture
 def excel_doc_path(tmp_path):
-    src = REPO_ROOT / "test.xlsx"
+    """Minimal .xlsx fixture: one sheet with a two-column header row."""
+    import openpyxl
+
     dst = tmp_path / "test.xlsx"
-    shutil.copy2(src, dst)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "Name"
+    ws["B1"] = "Age"
+    wb.save(dst)
     return dst

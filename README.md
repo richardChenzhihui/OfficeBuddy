@@ -1,99 +1,235 @@
-# Office Agent
+<h1 align="center">OfficeBuddy</h1>
 
-在 Mac 上用自然语言编辑 Word / Excel 文档的 LLM agent，带**真实渲染截图验证闭环**：
-每步编辑后由 Word/Excel 本体渲染出页面截图，交给独立的多模态验证器审查，失败则带着
-精确的问题描述（页码、元素、差在哪）定向修复——不靠盲目重试。
+<p align="center">
+  <strong>An agent that edits your Word and Excel files — and then <em>looks at them</em> to check its own work.</strong>
+</p>
 
-## 核心特性
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-blue">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-lightgrey">
+  <img alt="Status" src="https://img.shields.io/badge/status-alpha-orange">
+</p>
 
-- **截图验证闭环**：AppleScript 驱动 Word/Excel 导出 PDF → PyMuPDF 转页面 PNG →
-  像素级 diff 找出变更页（红框标注变更区域）→ 独立无状态验证调用给出结构化裁决。
-- **零弹窗**：工作副本放在 Office 应用各自的沙盒容器内，配合导出前预删除目标文件、
-  关闭 display alerts、不抢焦点——正常使用中不会出现任何 macOS 权限弹窗
-  （仅首次需要在系统设置里授予一次自动化权限，`office-agent doctor` 会引导）。
-- **计划 + 反问**：多步任务先出计划（终端实时清单 ☐/⏳/✅），指令模糊时用
-  多选题/自由问答向用户澄清（questionary 交互）。
-- **反暴力重复**：错误签名归一化；同类失败两次强制换策略；再失败改问用户；
-  每步/每任务有硬预算上限。
-- **安全**：原文件在显式确认前**永不写入**（默认另存 `<name>.edited.<ext>`，
-  覆盖原文件需要交互确认或 `--yes`）；每次变更自动快照，随时 `undo`；
-  文档内容视为数据而非指令（防 prompt injection）。
+<p align="center">
+  <strong>English</strong> | <a href="README_zh.md">中文</a>
+</p>
 
-## 安装
+---
+
+Most document agents write bytes into a file and hope. OfficeBuddy renders the document
+**through Microsoft Word and Excel themselves** after every single edit, diffs the pages,
+and hands the screenshot to a separate multimodal verifier that has to sign off before the
+next step begins. When the verifier objects, it says *which page, which element, what is
+wrong* — so the repair is targeted, not a blind retry.
+
+The renderer is not a lookalike engine. It is Word.
+
+## One real run, three real screenshots
+
+Instruction: *"Make the title bold, 24pt and centered; then add a 2×3 table at the end with
+headers 任务/负责人/状态 and one data row, with black solid borders."*
+
+<table>
+<tr>
+<td width="33%" align="center"><strong>1 · before</strong></td>
+<td width="33%" align="center"><strong>2 · after the edit</strong></td>
+<td width="33%" align="center"><strong>3 · what the verifier sees</strong></td>
+</tr>
+<tr>
+<td width="33%"><img src="examples/harness-walkthrough/renders/step-0-original/page_000.png" alt="Original document rendered by Word"></td>
+<td width="33%"><img src="examples/harness-walkthrough/renders/step-2/page_000.png" alt="Document after the agent's edits"></td>
+<td width="33%"><img src="examples/harness-walkthrough/renders/step-2/annotated_page_000.png" alt="Changed region boxed in red for the verifier"></td>
+</tr>
+</table>
+
+Every pixel above came out of real Microsoft Word on a real Mac. The red box is drawn by a
+pixel diff against the last *verified* render, so the verifier is told exactly where to look
+instead of re-reading the whole page.
+
+The full evidence trail for this run — the model's plan, every tool call, the rendered PDFs,
+and the verifier's structured verdicts — is checked into
+[`examples/harness-walkthrough/`](examples/harness-walkthrough/).
+
+## How the loop works
+
+```mermaid
+flowchart LR
+    A[instruction] --> B[plan]
+    B --> C["edit<br/>(python-docx / openpyxl)"]
+    C --> D["render through<br/>real Word / Excel"]
+    D --> E["pixel diff vs.<br/>last verified page"]
+    E --> F{"independent<br/>visual verifier"}
+    F -->|pass| G["baseline advances,<br/>next step"]
+    F -->|"fail + reason"| H[targeted repair]
+    H --> C
+    H -.->|same failure twice| I[change strategy]
+    I -.->|still failing| J[ask the user]
+```
+
+Three properties make this more than a retry wrapper:
+
+- **The verifier is a separate, stateless call.** It never sees the edit history or the
+  model's own reasoning — only the screenshot and the step description. It cannot talk
+  itself into believing an edit worked.
+- **The baseline ratchets.** Each new render is diffed against the last render that
+  *passed*, not merely the last render produced. A failed step cannot quietly become the
+  new normal.
+- **Failure escalates instead of repeating.** Errors are normalized into signatures; the
+  same signature twice forces a different strategy, a third time asks you. Every step and
+  every task has a hard budget ceiling.
+
+## Quick start
 
 ```bash
-cd office_agent
+git clone https://github.com/richardChenzhihui/OfficeBuddy.git
+cd OfficeBuddy
 pip install -e .
+export MINIMAX_API_KEY=...      # Anthropic-compatible endpoint, model MiniMax-M3
+officebuddy doctor              # one-time automation-permission setup + self-check
 ```
 
-前置条件：
-- macOS + Microsoft Word / Excel（渲染验证用）
-- `MINIMAX_API_KEY` 环境变量（[MiniMax token plan](https://platform.minimaxi.com/docs/token-plan/quickstart)，
-  Anthropic 兼容端点，模型 MiniMax-M3，原生多模态）
-
-首次使用先自检（会引导完成一次性的自动化授权）：
+Then just talk to it:
 
 ```bash
-office-agent doctor
+# one-shot, then drop into a REPL to keep going
+officebuddy "把第一段改成 Times New Roman 12 号，并加粗标题" report.docx
+
+# pure one-shot
+officebuddy "add a totals row and bold it" sales.xlsx --one-shot
+
+# interactive session
+officebuddy
 ```
 
-## 用法
+Useful flags:
 
-```bash
-# 一次性任务（完成后进入 REPL 继续对话）
-office-agent "把第一段改成 Times New Roman 12 号，并加粗标题" report.docx
+| Flag | What it does |
+|---|---|
+| `--yes` | allow overwriting the original file (non-interactive use) |
+| `--no-visual-verify` | skip the render loop — faster for pure data edits |
+| `--verbose` / `-v` | show every tool call and its result |
+| `--one-shot` | run the task and exit instead of entering the REPL |
+| `--non-interactive` | never ask questions; take the safe default |
 
-# 纯一次性
-office-agent "..." report.docx --one-shot
+**Requirements:** macOS, Microsoft Word / Excel (they *are* the renderer), Python 3.10+, and a
+[MiniMax](https://platform.minimaxi.com/docs/token-plan/quickstart) API key.
+`office-agent` still works as an alias of the `officebuddy` command.
 
-# 直接进 REPL
-office-agent
+## What it can edit
 
-# 常用选项
-#   --yes               允许覆盖原文件（非交互场景）
-#   --no-visual-verify  跳过截图验证（纯数据编辑提速）
-#   --verbose / -v      显示工具调用详情
-#   --non-interactive   禁止提问（自动选安全默认项）
+| | Read | Edit | Rendered verification |
+|---|:--:|:--:|:--:|
+| Word (`.docx`) | ✅ | ✅ | ✅ |
+| Excel (`.xlsx`) | ✅ | ✅ | ✅ |
+
+**Word** — text editing and find/replace (paragraph- and run-level), character styling (font,
+size, bold/italic/underline, color, **per-script CJK font slots**), paragraph styling
+(alignment, indent, spacing), inserting and deleting elements (paragraphs, tables, page
+breaks), table and cell borders (`tblBorders` / `tcBorders`), and structure inspection.
+
+**Excel** — cell read/write with type preservation, formulas, cell and range styling (font,
+fill, alignment, number format, borders), conditional selection (`row[Salary>5000]`-style
+predicates), row/column insertion and deletion, sheet management, freeze panes, charts, and a
+**fidelity guard** that inventories the workbook's parts before and after a save and reports
+exactly what the underlying reader would have dropped.
+
+## Safety, because it edits your actual files
+
+- **Your original is never written until you say so.** All work happens on an isolated copy;
+  the default output is `<name>.edited.<ext>`. Overwriting the original requires an
+  interactive confirmation or `--yes`.
+- **Every change is snapshotted** byte-for-byte with a persistent index — `undo` and
+  `restore` work at any point.
+- **Document content is data, not instructions.** Text read out of your files is never
+  allowed to steer the agent (prompt-injection defense).
+- **No permission dialogs during normal use.** Working copies live inside each Office app's
+  own sandbox container, exports pre-delete their target, alerts are suppressed, and focus is
+  never stolen. macOS asks for automation permission exactly once, and `doctor` walks you
+  through it.
+- **The Excel fidelity guard** warns you up front when a workbook contains parts the reader
+  cannot round-trip (see Limitations).
+
+## Architecture
+
 ```
-
-## 架构
-
-```
-cli.py                REPL / one-shot / doctor
+cli.py                  REPL / one-shot / doctor
 agent/
-  loop.py             harness 主循环：计划→反问→执行→渲染验证→定向修复
-  verifier.py         独立无状态视觉验证调用（强制结构化裁决）
-  budget.py           错误签名 + 升级阶梯（重试→换策略→问用户）
-  history.py          Anthropic Messages 历史管理（图片不进主循环历史）
+  loop.py               main harness: plan → clarify → execute → render → verify → repair
+  verifier.py           independent stateless visual verification (forced structured verdict)
+  budget.py             error signatures + escalation ladder (retry → new strategy → ask)
+  history.py            message history (images are kept out of the main loop's context)
 tools/
-  registry.py         pydantic 模型 → tool schema；统一错误包装；自动快照
-  session/word/excel  直接应用式编辑工具（返回 matched_count/affected/error）
-  interaction_tools   propose_plan / update_plan / ask_user / render_preview
+  registry.py           pydantic models → tool schemas; uniform error envelope; auto-snapshot
+  word_tools.py         word_edit_text / edit_style / insert_element / delete_element /
+                        find_replace / read_content
+  excel_tools.py        excel_write_cells / edit_formula / edit_style / conditional_select /
+                        create_chart / manage_sheet / freeze_panes / fidelity_report / …
+  interaction_tools.py  propose_plan / update_plan / ask_user / render_preview
 render/
-  applescript.py      Word/Excel → PDF（容器内、零弹窗、超时+错误分类）
-  pdf_to_images.py    PDF → PNG（PyMuPDF，144dpi）
-  page_diff.py        变更页检测 + bbox 红框标注
+  applescript.py        Word/Excel → PDF (in-container, dialog-free, timeout + error classes)
+  pdf_to_images.py      PDF → PNG (PyMuPDF, 144 dpi)
+  page_diff.py          changed-page detection + red bounding-box annotation
+  renderer.py           content-addressed render cache + verified-baseline ratchet
 core/
-  session.py          工作副本隔离（原文件只在显式 save 时写）
-  snapshot_manager.py 每步字节快照 + 持久化索引（undo/restore）
-adapters/             python-docx / openpyxl 无状态操作层
+  session.py            working-copy isolation (the original is touched only on explicit save)
+  snapshot_manager.py   per-step byte snapshots + persistent index (undo / restore)
+adapters/               stateless python-docx / openpyxl operation layer
 ```
 
-## 测试
+## A bug the screenshots caught by themselves
+
+After the first demo run, plain body text showed words that looked *randomly bolder* than
+their neighbours — in a paragraph the agent had never touched. Chasing it down: the source
+`document.xml` had no per-character formatting at all, but `pdffonts` showed the exported PDF
+embedding both `MS-Mincho` and `MicrosoftYaHei`, and a per-span extraction confirmed Word was
+guessing a fallback font *per CJK character*, because the document's `Normal` style declared
+no east-asian font.
+
+That is exactly the class of defect a byte-level assertion can never see and a rendered
+screenshot cannot miss. The fix — proper `w:eastAsia` font slots in the Word adapter — and the
+full investigation are written up in
+[`examples/harness-walkthrough/README.md`](examples/harness-walkthrough/README.md).
+
+## Design notes
+
+Longer write-ups on the edit layer live in [`docs/edit-layer-designs/`](docs/edit-layer-designs/):
+the [native-ops router](docs/edit-layer-designs/router-native-ops.md), the
+[Excel fidelity guard](docs/edit-layer-designs/excel-fidelity-guard.md), and the
+[Word raw-XML patch modality](docs/edit-layer-designs/xml-patch-word.md).
+
+There is also a self-contained visual walkthrough of the harness design at
+[`examples/harness-walkthrough/visualization/harness-design-manual.html`](examples/harness-walkthrough/visualization/harness-design-manual.html)
+— download it and open it in a browser.
+
+## Limitations
+
+- **Opening an `.xlsx` that already contains charts or images and saving it loses them.**
+  openpyxl's reader does not parse them. You are warned explicitly on open and told not to
+  overwrite the original; pure data and styling edits are unaffected.
+- Excel charts are generated by openpyxl: the first column of the data range becomes the
+  category axis by default, and the styling is plain.
+- Word tracked changes, comments, footnotes and TOC field updates are not supported yet
+  (planned via a Word-internal automation escape hatch). Table and cell borders *are*
+  supported.
+- The first Word render of a session can take 1–2 minutes while Word itself cold-starts;
+  warm renders within a session take about 0.6s. Word and Excel are deliberately left running
+  afterwards to preserve that warm start — `doctor` only quits instances it started.
+- Paragraph-level find/replace flattens run formatting *within that paragraph* when a match
+  straddles a formatting boundary. The result carries a warning when this happens.
+- macOS only, by construction. The whole premise is driving real Office as the renderer.
+
+## Development
 
 ```bash
-pytest -q                    # 离线测试（单元 + 工具 + FakeLLM 循环测试）
-pytest -m mac_office -q      # 本机渲染集成测试（需要 Word/Excel）
-OFFICE_AGENT_LIVE_TEST=1 pytest -m live -q   # 真实 MiniMax 冒烟（花钱，默认跳过）
+pytest -q                    # offline suite (unit + tools + FakeLLM loop tests)
+pytest -m mac_office -q      # integration tests that drive real Word/Excel
+OFFICE_AGENT_LIVE_TEST=1 pytest -m live -q   # live MiniMax smoke test (costs money, skipped by default)
 ```
 
-## 已知限制
+`mac_office` tests drive the real Office apps and may surface macOS permission dialogs — run
+them with a human present, never unattended.
 
-- **打开本来就带图表/图片的 .xlsx 再保存会丢失这些图表/图片**（openpyxl 读取器
-  不解析它们）。打开时会显式警告并提示不要覆盖原文件；纯数据/样式编辑不受影响。
-- Excel 图表由 openpyxl 生成：数据区首列默认作为类别轴标签，其余样式较朴素。
-- Word 表格/单元格边框已支持（`style_params.border`）；修订、批注、脚注、TOC 域
-  更新等 Word 高级特性暂不支持（计划通过 Word 内部自动化逃生舱补充）。
-- Word 渲染首次冷启动可能需要 1-2 分钟（Word 本体启动）；会话内温启动约 0.6 秒。
-  会话结束后 Word/Excel 保持运行以保留温启动（`doctor` 只退出它自己启动的实例）。
-- 段落级 find_replace 仅在匹配跨越格式边界时展平该段 run 格式（结果中带 warning）。
+## License
+
+MIT — see [LICENSE](LICENSE).

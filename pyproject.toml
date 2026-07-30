@@ -3,11 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "office-agent"
+name = "officebuddy"
 version = "0.2.0"
-description = "LLM agent that edits Word/Excel documents with rendered-screenshot verification on macOS"
+description = "An agent that edits Word/Excel documents and verifies its own work with real rendered screenshots (macOS)"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["office", "docx", "xlsx", "agent", "llm", "automation", "macos"]
 dependencies = [
     "anthropic>=0.40",
     "pydantic>=2.0",
@@ -24,8 +26,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-cov"]
 
+[project.urls]
+Homepage = "https://github.com/richardChenzhihui/OfficeBuddy"
+Repository = "https://github.com/richardChenzhihui/OfficeBuddy"
+Issues = "https://github.com/richardChenzhihui/OfficeBuddy/issues"
+
 [project.scripts]
-office-agent = "office_agent.cli:app"
+officebuddy = "office_agent.cli:app"
+office-agent = "office_agent.cli:app"  # legacy alias
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 720" width="1240" height="720" role="img" aria-label="OfficeBuddy agent harness: instruction, plan, edit, render through real Word and Excel, pixel diff, independent verifier, with an escalation ladder and safety rails" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="d-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0A0F1E"/>
+      <stop offset="60%" stop-color="#121A31"/>
+      <stop offset="100%" stop-color="#1B1330"/>
+    </linearGradient>
+    <radialGradient id="d-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="d-glow2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6366F1" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#6366F1" stop-opacity="0"/>
+    </radialGradient>
+
+    <marker id="ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B"/>
+    </marker>
+    <marker id="ar-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FB7185"/>
+    </marker>
+    <marker id="ar-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#34D399"/>
+    </marker>
+    <marker id="ar-amber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FBBF24"/>
+    </marker>
+
+    <filter id="d-lift" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="1240" height="720" rx="20" fill="url(#d-bg)"/>
+  <ellipse cx="640" cy="150" rx="330" ry="180" fill="url(#d-glow)"/>
+  <ellipse cx="150" cy="120" rx="280" ry="170" fill="url(#d-glow2)"/>
+  <rect x="0.5" y="0.5" width="1239" height="719" rx="20" fill="none" stroke="#334155" stroke-opacity="0.45"/>
+
+  <text x="40" y="52" font-size="20" font-weight="700" fill="#E2E8F0">The verification loop</text>
+  <text x="40" y="76" font-size="13.5" fill="#7C89A8">Every edit is rendered by real Office, diffed, and signed off by a separate pair of eyes before the next one starts.</text>
+
+  <!-- ══ main loop row ══════════════════════════════════════════════ -->
+  <g filter="url(#d-lift)">
+    <!-- 1 instruction -->
+    <rect x="36" y="122" width="172" height="88" rx="14" fill="#141C33" stroke="#818CF8" stroke-opacity="0.55"/>
+    <rect x="36" y="122" width="172" height="4" rx="2" fill="#818CF8"/>
+    <!-- 2 plan -->
+    <rect x="236" y="122" width="172" height="88" rx="14" fill="#141C33" stroke="#A78BFA" stroke-opacity="0.55"/>
+    <rect x="236" y="122" width="172" height="4" rx="2" fill="#A78BFA"/>
+    <!-- 3 edit -->
+    <rect x="436" y="122" width="172" height="88" rx="14" fill="#141C33" stroke="#38BDF8" stroke-opacity="0.55"/>
+    <rect x="436" y="122" width="172" height="4" rx="2" fill="#38BDF8"/>
+    <!-- 4 render (hero node) -->
+    <rect x="636" y="114" width="172" height="104" rx="14" fill="#231A12" stroke="#FBBF24" stroke-width="2"/>
+    <rect x="636" y="114" width="172" height="4" rx="2" fill="#FBBF24"/>
+    <!-- 5 diff -->
+    <rect x="836" y="122" width="172" height="88" rx="14" fill="#141C33" stroke="#2DD4BF" stroke-opacity="0.55"/>
+    <rect x="836" y="122" width="172" height="4" rx="2" fill="#2DD4BF"/>
+    <!-- 6 verifier -->
+    <rect x="1036" y="122" width="172" height="88" rx="14" fill="#141C33" stroke="#F472B6" stroke-opacity="0.7"/>
+    <rect x="1036" y="122" width="172" height="4" rx="2" fill="#F472B6"/>
+  </g>
+
+  <!-- node labels -->
+  <g text-anchor="middle">
+    <text x="122" y="163" font-size="16" font-weight="700" fill="#E8ECF7">Instruction</text>
+    <text x="122" y="186" font-size="11.5" fill="#8595B4">plain language</text>
+
+    <text x="322" y="163" font-size="16" font-weight="700" fill="#E8ECF7">Plan</text>
+    <text x="322" y="186" font-size="11.5" fill="#8595B4">steps &#183; asks if unclear</text>
+
+    <text x="522" y="163" font-size="16" font-weight="700" fill="#E8ECF7">Edit</text>
+    <text x="522" y="186" font-size="11.5" fill="#8595B4">python-docx / openpyxl</text>
+
+    <text x="722" y="152" font-size="16" font-weight="800" fill="#FDE68A">Render</text>
+    <text x="722" y="175" font-size="11.5" font-weight="700" fill="#FBBF24">REAL Word / Excel</text>
+    <text x="722" y="195" font-size="10.5" fill="#A98C55">not a lookalike engine</text>
+
+    <text x="922" y="163" font-size="16" font-weight="700" fill="#E8ECF7">Pixel diff</text>
+    <text x="922" y="186" font-size="11.5" fill="#8595B4">vs. last verified page</text>
+
+    <text x="1122" y="163" font-size="16" font-weight="700" fill="#E8ECF7">Verifier</text>
+    <text x="1122" y="186" font-size="11.5" fill="#8595B4">independent &#183; stateless</text>
+  </g>
+
+  <!-- connectors -->
+  <g stroke="#64748B" stroke-width="2" fill="none" marker-end="url(#ar)">
+    <line x1="210" y1="166" x2="232" y2="166"/>
+    <line x1="410" y1="166" x2="432" y2="166"/>
+    <line x1="610" y1="166" x2="632" y2="166"/>
+    <line x1="810" y1="166" x2="832" y2="166"/>
+    <line x1="1010" y1="166" x2="1032" y2="166"/>
+  </g>
+
+  <!-- ══ verdict branch ═════════════════════════════════════════════ -->
+  <path d="M 1122 210 L 1122 238" stroke="#64748B" stroke-width="2" fill="none"/>
+  <circle cx="1122" cy="238" r="3.5" fill="#94A3B8"/>
+  <path d="M 1122 238 L 1122 268 Q 1122 278 1112 278 L 700 278" stroke="#34D399" stroke-width="2" fill="none" marker-end="url(#ar-green)"/>
+  <path d="M 1122 238 L 1152 238 L 1152 340 Q 1152 350 1142 350 L 700 350" stroke="#FB7185" stroke-width="2" fill="none" marker-end="url(#ar-red)"/>
+
+  <!-- PASS -->
+  <g filter="url(#d-lift)">
+    <rect x="380" y="256" width="316" height="44" rx="12" fill="#0C2A22" stroke="#34D399" stroke-opacity="0.65"/>
+  </g>
+  <circle cx="408" cy="278" r="10" fill="#10B981"/>
+  <path d="M 403.5 278 L 406.8 281.5 L 412.8 274.5" fill="none" stroke="#052E20" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="428" y="274" font-size="13.5" font-weight="700" fill="#6EE7B7">PASS</text>
+  <text x="428" y="291" font-size="11.5" fill="#79A99A">baseline ratchets forward &#183; next step unlocks</text>
+
+  <!-- FAIL -->
+  <g filter="url(#d-lift)">
+    <rect x="380" y="328" width="316" height="44" rx="12" fill="#2B1220" stroke="#FB7185" stroke-opacity="0.65"/>
+  </g>
+  <circle cx="408" cy="350" r="10" fill="#F43F5E"/>
+  <path d="M 404.5 346.5 L 411.5 353.5 M 411.5 346.5 L 404.5 353.5" stroke="#3B0A16" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="428" y="346" font-size="13.5" font-weight="700" fill="#FDA4AF">FAIL &#8594; targeted repair</text>
+  <text x="428" y="363" font-size="11.5" fill="#B08494">which page, which element, what&#8217;s wrong</text>
+
+  <!-- repair loops back to Edit -->
+  <path d="M 380 350 L 300 350 Q 290 350 290 340 L 290 234 Q 290 224 300 224 L 512 224 L 512 214"
+        stroke="#FB7185" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#ar-red)"/>
+  <text x="304" y="245" font-size="11" font-weight="600" fill="#FB7185">retry, informed</text>
+
+  <!-- ══ escalation ladder ══════════════════════════════════════════ -->
+  <rect x="36" y="412" width="1172" height="118" rx="16" fill="#0E1426" stroke="#334155" stroke-opacity="0.7"/>
+  <text x="60" y="443" font-size="14.5" font-weight="700" fill="#E2E8F0">Anti-brute-force ladder</text>
+  <text x="248" y="443" font-size="12" fill="#7C89A8">errors are normalized to a signature &#8212; the same one twice is never retried the same way</text>
+
+  <g>
+    <rect x="60" y="458" width="252" height="52" rx="11" fill="#1A2340" stroke="#60A5FA" stroke-opacity="0.5"/>
+    <circle cx="86" cy="484" r="13" fill="#3B82F6" fill-opacity="0.22"/>
+    <text x="86" y="489" font-size="13" font-weight="800" fill="#93C5FD" text-anchor="middle">1</text>
+    <text x="110" y="480" font-size="13" font-weight="700" fill="#DBEAFE">Retry</text>
+    <text x="110" y="497" font-size="11" fill="#7E95BC">with the verifier&#8217;s reason attached</text>
+
+    <rect x="340" y="458" width="252" height="52" rx="11" fill="#2A2340" stroke="#C084FC" stroke-opacity="0.5"/>
+    <circle cx="366" cy="484" r="13" fill="#A855F7" fill-opacity="0.24"/>
+    <text x="366" y="489" font-size="13" font-weight="800" fill="#D8B4FE" text-anchor="middle">2</text>
+    <text x="390" y="480" font-size="13" font-weight="700" fill="#EDE9FE">Change strategy</text>
+    <text x="390" y="497" font-size="11" fill="#A08DC0">the same approach is now forbidden</text>
+
+    <rect x="620" y="458" width="252" height="52" rx="11" fill="#3A2A16" stroke="#FBBF24" stroke-opacity="0.5"/>
+    <circle cx="646" cy="484" r="13" fill="#F59E0B" fill-opacity="0.24"/>
+    <text x="646" y="489" font-size="13" font-weight="800" fill="#FCD34D" text-anchor="middle">3</text>
+    <text x="670" y="480" font-size="13" font-weight="700" fill="#FEF3C7">Ask you</text>
+    <text x="670" y="497" font-size="11" fill="#BFA168">rather than burn another attempt</text>
+
+    <rect x="900" y="458" width="284" height="52" rx="11" fill="#2B1220" stroke="#FB7185" stroke-opacity="0.45"/>
+    <circle cx="926" cy="484" r="13" fill="#F43F5E" fill-opacity="0.22"/>
+    <path d="M 926 477.5 L 926 485 M 926 489.5 L 926 490.5" stroke="#FDA4AF" stroke-width="2.6" stroke-linecap="round"/>
+    <text x="950" y="480" font-size="13" font-weight="700" fill="#FECDD3">Hard ceiling</text>
+    <text x="950" y="497" font-size="11" fill="#B08494">per step and per task &#8212; it cannot spin</text>
+  </g>
+
+  <g stroke="#475569" stroke-width="1.8" fill="none" marker-end="url(#ar)">
+    <line x1="314" y1="484" x2="336" y2="484"/>
+    <line x1="594" y1="484" x2="616" y2="484"/>
+  </g>
+
+  <!-- ══ safety rail ════════════════════════════════════════════════ -->
+  <rect x="36" y="552" width="1172" height="130" rx="16" fill="#0C1322" stroke="#334155" stroke-opacity="0.7"/>
+  <text x="60" y="583" font-size="14.5" font-weight="700" fill="#E2E8F0">Safety rails</text>
+  <text x="152" y="583" font-size="12" fill="#7C89A8">it is editing your real files, so none of this is optional</text>
+
+  <g>
+    <rect x="60" y="598" width="272" height="66" rx="11" fill="#10201A" stroke="#34D399" stroke-opacity="0.4"/>
+    <path d="M 86 618 L 98 623 L 98 632 Q 98 641 86 646 Q 74 641 74 632 L 74 623 Z" fill="#10B981" fill-opacity="0.28" stroke="#34D399" stroke-width="1.6"/>
+    <text x="112" y="624" font-size="12.5" font-weight="700" fill="#A7F3D0">Original never written</text>
+    <text x="112" y="640" font-size="10.8" fill="#6F998C">work happens on an isolated copy;</text>
+    <text x="112" y="654" font-size="10.8" fill="#6F998C">saves default to &#8249;name&#8250;.edited.&#8249;ext&#8250;</text>
+
+    <rect x="352" y="598" width="272" height="66" rx="11" fill="#101C2E" stroke="#60A5FA" stroke-opacity="0.4"/>
+    <path d="M 366 620 a 12 12 0 1 1 3.5 8.5" fill="none" stroke="#60A5FA" stroke-width="2" stroke-linecap="round"/>
+    <path d="M 363 613 L 366 621 L 374 619" fill="none" stroke="#60A5FA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="404" y="624" font-size="12.5" font-weight="700" fill="#BFDBFE">Byte snapshot per step</text>
+    <text x="404" y="640" font-size="10.8" fill="#7593B8">persistent index behind it &#8212;</text>
+    <text x="404" y="654" font-size="10.8" fill="#7593B8">undo and restore at any point</text>
+
+    <rect x="644" y="598" width="272" height="66" rx="11" fill="#1F1630" stroke="#C084FC" stroke-opacity="0.4"/>
+    <rect x="676" y="612" width="18" height="22" rx="3" fill="none" stroke="#C084FC" stroke-width="1.8"/>
+    <path d="M 679.5 612 L 679.5 607 a 5.5 5.5 0 0 1 11 0 L 690.5 612" fill="none" stroke="#C084FC" stroke-width="1.8"/>
+    <text x="708" y="624" font-size="12.5" font-weight="700" fill="#E9D5FF">Content is data</text>
+    <text x="708" y="640" font-size="10.8" fill="#A08DC0">text read out of your documents</text>
+    <text x="708" y="654" font-size="10.8" fill="#A08DC0">can never steer the agent</text>
+
+    <rect x="936" y="598" width="248" height="66" rx="11" fill="#2B2312" stroke="#FBBF24" stroke-opacity="0.4"/>
+    <circle cx="962" cy="622" r="11" fill="none" stroke="#FBBF24" stroke-width="1.8"/>
+    <path d="M 962 616.5 L 962 623 L 966.5 626" fill="none" stroke="#FBBF24" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="984" y="624" font-size="12.5" font-weight="700" fill="#FDE68A">No permission popups</text>
+    <text x="984" y="640" font-size="10.8" fill="#BFA168">work copies live inside each app&#8217;s</text>
+    <text x="984" y="654" font-size="10.8" fill="#BFA168">own sandbox container</text>
+  </g>
+</svg>

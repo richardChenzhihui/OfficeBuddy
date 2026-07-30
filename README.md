@@ -1,7 +1,5 @@
-<h1 align="center">OfficeBuddy</h1>
-
 <p align="center">
-  <strong>An agent that edits your Word and Excel files — and then <em>looks at them</em> to check its own work.</strong>
+  <img src="assets/hero.svg" alt="OfficeBuddy — edit your Word and Excel files by talking, verified by Word and Excel themselves. It doesn't guess. It looks." width="100%">
 </p>
 
 <p align="center">
@@ -25,10 +23,15 @@ wrong* — so the repair is targeted, not a blind retry.
 
 The renderer is not a lookalike engine. It is Word.
 
-## One real run, three real screenshots
+<p align="center">
+  <img src="assets/harness.svg" alt="The verification loop: instruction, plan, edit, render through real Word/Excel, pixel diff, independent verifier; pass advances the baseline while fail triggers a targeted repair, backed by an escalation ladder and safety rails" width="100%">
+</p>
 
-Instruction: *"Make the title bold, 24pt and centered; then add a 2×3 table at the end with
-headers 任务/负责人/状态 and one data row, with black solid borders."*
+## Proof, not promises
+
+Nothing below is a mockup. This is a real run on a real `.docx`, on a real Mac, rendered by
+real Word — instruction: *"Make the title bold, 24pt and centered; then add a 2×3 table at
+the end with headers 任务/负责人/状态 and one data row, with black solid borders."*
 
 <table>
 <tr>
@@ -43,31 +46,15 @@ headers 任务/负责人/状态 and one data row, with black solid borders."*
 </tr>
 </table>
 
-Every pixel above came out of real Microsoft Word on a real Mac. The red box is drawn by a
-pixel diff against the last *verified* render, so the verifier is told exactly where to look
-instead of re-reading the whole page.
+That red box is not decoration. It is drawn by a pixel diff against the last *verified*
+render, so the verifier is told exactly where to look instead of re-reading the whole page.
 
-The full evidence trail for this run — the model's plan, every tool call, the rendered PDFs,
-and the verifier's structured verdicts — is checked into
-[`examples/harness-walkthrough/`](examples/harness-walkthrough/).
+The complete evidence trail — the model's plan, every tool call, the rendered PDFs, and the
+verifier's structured verdicts — is checked into
+[`examples/harness-walkthrough/`](examples/harness-walkthrough/). Read it and grade the claim
+yourself.
 
-## How the loop works
-
-```mermaid
-flowchart LR
-    A[instruction] --> B[plan]
-    B --> C["edit<br/>(python-docx / openpyxl)"]
-    C --> D["render through<br/>real Word / Excel"]
-    D --> E["pixel diff vs.<br/>last verified page"]
-    E --> F{"independent<br/>visual verifier"}
-    F -->|pass| G["baseline advances,<br/>next step"]
-    F -->|"fail + reason"| H[targeted repair]
-    H --> C
-    H -.->|same failure twice| I[change strategy]
-    I -.->|still failing| J[ask the user]
-```
-
-Three properties make this more than a retry wrapper:
+## Why this is more than a retry wrapper
 
 - **The verifier is a separate, stateless call.** It never sees the edit history or the
   model's own reasoning — only the screenshot and the step description. It cannot talk

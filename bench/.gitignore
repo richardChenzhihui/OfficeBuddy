@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Run artifacts: regenerable, large, and full of per-run absolute paths.
+workdir/
+results/logs/
+results/renders/
+results/current_run.txt
+.claude/hooks/.logs/
+workdir_visual/
+results/visual_renders/
+# visual_report.html is the deliverable — tracked
+_preview*.html

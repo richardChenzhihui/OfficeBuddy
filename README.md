@@ -54,6 +54,38 @@ verifier's structured verdicts — is checked into
 [`examples/harness-walkthrough/`](examples/harness-walkthrough/). Read it and grade the claim
 yourself.
 
+## Measured against another agent
+
+Byte-level assertions and schema validation share a blind spot: a file can be structurally
+valid, pass every assertion, and still be visibly broken once a real layout engine renders it.
+[**Render-Truth Bench**](bench/) is 9 tasks built on exactly that gap — each pairs an ordinary
+edit instruction with a *literal-execution trap*, where doing what was asked, verbatim, yields
+a file that validates cleanly and renders wrong.
+
+A 2×2 factorial over two systems × visual-feedback availability, 3 repeats per cell,
+**108 runs**, every artefact rendered through real Microsoft Word and Excel:
+
+| Configuration | DDR ↓ | SFR ↓ | DAR ↑ | DAR* ↑ |
+|---|---|---|---|---|
+| **OfficeBuddy** · visual feedback on | **26%** | **15%** | **85%** | **81%** |
+| OfficeBuddy · visual feedback off | 33% | 22% | 78% | 71% |
+| OfficeCLI · screenshots available | 63% | 63% | 37% | 19% |
+| OfficeCLI · screenshots ablated | 63% | 59% | 41% | 24% |
+
+**DDR** — defect delivery rate; share of runs whose delivered file carries the defect, decided
+by deterministic detectors with no model in the loop. **SFR** — silent failure rate; the file is
+broken *and* the user was never told. **DAR** — defect awareness rate. **DAR\*** — DAR excluding
+the two tasks this project has already hardened against, so the number cannot be explained by a
+baked-in default.
+
+Read the caveats before quoting any of this. The task set is deliberately aimed at the one
+dimension this architecture targets — it does **not** measure capability breadth, speed, or
+token cost, and on those the comparison runs the other way (see [`bench/REPORT.md`](bench/REPORT.md)).
+At n=3 per cell, differences of a few points are not distinguishable. The harness, the
+three-state calibration gate that every task had to pass, and the full report with rendered
+evidence are all in [`bench/`](bench/) — including
+[`RESULTS.md`](bench/RESULTS.md) and [`visual_report.html`](bench/visual_report.html).
+
 ## Why this is more than a retry wrapper
 
 - **The verifier is a separate, stateless call.** It never sees the edit history or the

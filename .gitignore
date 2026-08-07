@@ -23,3 +23,8 @@ build/
 # Office temp/lock files
 ~$*.docx
 ~$*.xlsx
+
+# Benchmark run artifacts: regenerable, large, full of absolute paths.
+bench/results/
+bench/workdir/
+bench/workdir_visual/
